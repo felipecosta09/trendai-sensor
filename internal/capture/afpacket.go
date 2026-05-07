@@ -52,7 +52,10 @@ func NewAFPacket(spec filterpkg.Spec) *AFPacket {
 func (a *AFPacket) Mode() string { return "afpacket" }
 
 func (a *AFPacket) Start(ctx context.Context, ifaces []string) (<-chan Packet, error) {
-	prog := filterpkg.Assemble(a.spec)
+	prog, err := filterpkg.Assemble(a.spec)
+	if err != nil {
+		return nil, fmt.Errorf("build cbpf: %w", err)
+	}
 	raw, err := bpf.Assemble(prog)
 	if err != nil {
 		return nil, fmt.Errorf("assemble cbpf: %w", err)

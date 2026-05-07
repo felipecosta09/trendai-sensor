@@ -48,11 +48,21 @@ type TCBPF struct {
 	objs   sensorBPFObjects
 	links  []link.Link
 	rb     *ringbuf.Reader
+	rbOnce sync.Once
 	ifaces map[int]string // ifindex -> name
 
 	captured atomic.Uint64
-	drops    [8]atomic.Uint64
 	closed   sync.Once
+}
+
+func (t *TCBPF) closeRB() error {
+	var err error
+	t.rbOnce.Do(func() {
+		if t.rb != nil {
+			err = t.rb.Close()
+		}
+	})
+	return err
 }
 
 func NewTCBPF() (*TCBPF, error) {
@@ -90,6 +100,14 @@ func (t *TCBPF) Start(ctx context.Context, ifaces []string) (<-chan Packet, erro
 		return nil, fmt.Errorf("ringbuf reader: %w", err)
 	}
 	t.rb = rb
+
+	// rb.Read() blocks with no deadline. On a quiet node ctx cancellation
+	// would never unblock it — closing the reader makes Read() return
+	// ErrClosed so reader() can exit.
+	go func() {
+		<-ctx.Done()
+		_ = t.closeRB()
+	}()
 
 	out := make(chan Packet, 1024)
 	go t.reader(ctx, out)
@@ -208,10 +226,8 @@ func (t *TCBPF) readDropCounter(idx uint32) uint64 {
 func (t *TCBPF) Close() error {
 	var firstErr error
 	t.closed.Do(func() {
-		if t.rb != nil {
-			if err := t.rb.Close(); err != nil && firstErr == nil {
-				firstErr = err
-			}
+		if err := t.closeRB(); err != nil && firstErr == nil {
+			firstErr = err
 		}
 		for _, l := range t.links {
 			if err := l.Close(); err != nil && firstErr == nil {

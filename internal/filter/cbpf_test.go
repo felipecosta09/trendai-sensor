@@ -28,7 +28,10 @@ func buildFrameSrc(ethertype uint16, proto uint8, src, dst [4]byte, sport, dport
 
 func TestAssembleKnownCases(t *testing.T) {
 	spec := Default()
-	prog := Assemble(spec)
+	prog, err := Assemble(spec)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
 	vm, err := bpf.NewVM(prog)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
@@ -77,5 +80,19 @@ func TestAssembleKnownCases(t *testing.T) {
 				t.Errorf("got accepted=%v, want %v (ret=%d)", accepted, c.accept, out)
 			}
 		})
+	}
+}
+
+// Assemble must refuse to emit a truncated program when the port lists grow
+// past what a uint8 skip can encode. The exact threshold depends on the fixed
+// prefix size; a 150-port list is comfortably over it.
+func TestAssembleRejectsOversizedProgram(t *testing.T) {
+	spec := Default()
+	spec.K8sNoiseTCPPorts = make([]uint16, 150)
+	for i := range spec.K8sNoiseTCPPorts {
+		spec.K8sNoiseTCPPorts[i] = uint16(30000 + i)
+	}
+	if _, err := Assemble(spec); err == nil {
+		t.Fatalf("expected error for oversized program, got nil")
 	}
 }

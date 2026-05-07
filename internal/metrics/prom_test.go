@@ -86,7 +86,6 @@ func TestCounterDeltaPatternNoDoubleCount(t *testing.T) {
 	prev = 5
 	// Tick 2: cumulative kernel_drops = 12 (7 new drops)
 	m.KernelDrops.Add(float64(uint64(12) - prev))
-	prev = 12
 
 	body := scrape(t, reg)
 	if !strings.Contains(body, "sensor_packets_dropped_kernel_total 12") {
