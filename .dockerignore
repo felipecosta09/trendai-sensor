@@ -1,0 +1,21 @@
+# Keep the build context small so `docker build` ships only what the builder
+# needs. bin/ and .git are the big ones; the rest is noise that would force
+# unnecessary cache invalidation.
+
+bin/
+.git/
+.github/
+.idea/
+.vscode/
+*.log
+*.swp
+.DS_Store
+
+# Local dev artifacts
+coverage.out
+dist/
+tmp/
+
+# Plans, benchmarks, and docs don't affect the build. Benchmark scripts and
+# README are intentionally included — builder stages may reference them and
+# excluding them is a trap when someone later adds a COPY.

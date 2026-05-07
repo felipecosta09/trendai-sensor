@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: trendai-sensor
+  namespace: trendai-sensor
+  labels:
+    app: trendai-sensor
+spec:
+  selector:
+    matchLabels:
+      app: trendai-sensor
+  template:
+    metadata:
+      labels:
+        app: trendai-sensor
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: trendai-sensor
+      hostNetwork: true
+      hostPID: false
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 10
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: sensor
+          image: felipecosta09/trendai-sensor:latest
+          imagePullPolicy: Always
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add:
+                - NET_RAW
+                - NET_ADMIN
+                - BPF
+                - PERFMON
+          envFrom:
+            - configMapRef:
+                name: trendai-sensor-config
+          # With hostNetwork: true the container port IS the host port —
+          # hostPort fields here would be redundant and would restrict
+          # scheduling to nodes where those ports are free of any other
+          # hostPort-pinned pods.
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi

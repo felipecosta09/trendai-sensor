@@ -1,0 +1,26 @@
+# The sensor does not call the Kubernetes API: it captures host traffic via
+# TC-BPF / AF_PACKET and forwards to an NDR over UDP. The ServiceAccount
+# therefore has no Role/ClusterRole bindings — any future API client must be
+# added explicitly here with a Role and RoleBinding (not a ClusterRoleBinding
+# unless cluster-wide access is justified).
+#
+# The privileged bits the pod actually needs live in the DaemonSet's
+# securityContext (NET_RAW, NET_ADMIN, BPF, PERFMON + hostNetwork). Clusters
+# running restricted PodSecurity admission must label this namespace with
+# `pod-security.kubernetes.io/enforce=privileged` — see the Namespace below.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trendai-sensor
+  labels:
+    # hostNetwork + NET_ADMIN/BPF require privileged-level PSA.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trendai-sensor
+  namespace: trendai-sensor

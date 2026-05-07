@@ -1,0 +1,12 @@
+/bin/
+*.o
+*_bpfel.go
+*_bpfel.o
+*_bpfeb.go
+*_bpfeb.o
+vendor/
+.idea/
+.vscode/
+.claude/
+.env
+benchmarks/results/

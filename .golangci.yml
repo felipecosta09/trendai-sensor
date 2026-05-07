@@ -1,0 +1,53 @@
+# golangci-lint config for trendai-sensor.
+#
+# Systems-level Go that uses unsafe.Pointer, raw syscalls, and atomic
+# operations — lean on static analysis to catch the bugs that `go vet` alone
+# doesn't surface.
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - linux
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - gosimple
+    - nilerr
+    - bodyclose
+    - misspell
+    - unconvert
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (net.Conn).Close
+      - (*net.UDPConn).Close
+      - (io.Closer).Close
+
+  gosec:
+    excludes:
+      # G103: unsafe.Pointer is deliberate in capture/afpacket.go for
+      # SockFprog marshaling and bpf.RawInstruction <-> unix.SockFilter
+      # aliasing — the layout compatibility is asserted at package init.
+      - G103
+      # G115: integer conversions between uint32/uint64 for packet-count
+      # arithmetic are guarded elsewhere; the default heuristic is noisy.
+      - G115
+
+issues:
+  exclude-rules:
+    # Generated BPF bindings come from cilium/ebpf's bpf2go — we don't
+    # control their style.
+    - path: internal/capture/sensorbpf_.*\.go
+      linters:
+        - staticcheck
+        - unused
+        - gosec
