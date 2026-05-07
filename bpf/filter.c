@@ -97,7 +97,10 @@ static __always_inline int handle(struct __sk_buff *skb, __u8 ingress)
     if ((void *)(iph + 1) > data_end)
         return TC_ACT_UNSPEC;
 
-    if (iph->daddr == METADATA_IP) {
+    // Match src OR dst — IMDS responses (src=169.254.169.254) would otherwise
+    // leak through a dst-only check, and the NDR could reconstruct the full
+    // session from the response half alone.
+    if (iph->daddr == METADATA_IP || iph->saddr == METADATA_IP) {
         bump_drop(DROP_METADATA);
         return TC_ACT_UNSPEC;
     }

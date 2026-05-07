@@ -11,6 +11,7 @@ import (
 const (
 	offEthertype = 12
 	offIPProto   = 23 // 14 + 9
+	offIPSrc     = 26 // 14 + 12
 	offIPDst     = 30 // 14 + 16
 	offIHL       = 14 // IP version/IHL byte
 	ethLen       = 14
@@ -30,6 +31,7 @@ const (
 // Program layout (drop-early, per-protocol port checks, then accept):
 //
 //	ethertype == IPv4            else drop
+//	ip.src    != metadata        else drop   (catches IMDS responses)
 //	ip.dst    != metadata        else drop
 //	ip.proto == TCP              -> TCP block
 //	ip.proto == UDP              else drop
@@ -57,6 +59,9 @@ func Assemble(spec Spec) []bpf.Instruction {
 
 	p = append(p, bpf.LoadAbsolute{Off: offEthertype, Size: 2})
 	jumpDrop(bpf.JumpIf{Cond: bpf.JumpNotEqual, Val: ethIPv4})
+
+	p = append(p, bpf.LoadAbsolute{Off: offIPSrc, Size: 4})
+	jumpDrop(bpf.JumpIf{Cond: bpf.JumpEqual, Val: metadata})
 
 	p = append(p, bpf.LoadAbsolute{Off: offIPDst, Size: 4})
 	jumpDrop(bpf.JumpIf{Cond: bpf.JumpEqual, Val: metadata})
