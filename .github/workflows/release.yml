@@ -36,18 +36,19 @@ jobs:
         with:
           version: v3.15.0
 
-      - name: Package & push chart to GHCR OCI
+      - name: Package chart
+        id: package
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           helm package charts/trendai-sensor \
             --version "${VERSION}" \
             --app-version "${VERSION}"
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
-            --username "${{ github.actor }}" --password-stdin
-          helm push "trendai-sensor-${VERSION}.tgz" \
-            "oci://ghcr.io/${{ github.repository_owner }}/charts"
+          echo "tgz=trendai-sensor-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub release
+      - name: Create GitHub release with chart asset
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" --generate-notes
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            "${{ steps.package.outputs.tgz }}"

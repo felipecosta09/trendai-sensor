@@ -58,37 +58,50 @@ make lint      # go vet + golangci-lint
 
 ## Install
 
-Helm is the primary install path. Images and charts are published to GHCR.
+The chart is published as a packaged tarball on each GitHub release. Images
+are published to GHCR.
+
+Drop your cluster-specific settings into `overrides.yaml` — you only need to
+list the values you're changing, everything else falls back to the chart
+defaults in [charts/trendai-sensor/values.yaml](charts/trendai-sensor/values.yaml):
+
+```yaml
+# overrides.yaml
+sensor:
+  ndrAddr: 10.0.0.5
+  vni: "0x0a0b0c"
+```
+
+Then install:
 
 ```
-helm install trendai-sensor \
-  oci://ghcr.io/felipecosta09/charts/trendai-sensor \
-  --version 0.1.0 \
+helm install \
+  --values overrides.yaml \
   --namespace trendai-sensor --create-namespace \
-  --set sensor.ndrAddr=10.0.0.5 \
-  --set sensor.vni=0x0a0b0c
+  trendai-sensor \
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.0/trendai-sensor-0.1.0.tgz
 ```
 
 Without Helm — render the chart and pipe to `kubectl`:
 
 ```
 helm template trendai-sensor \
-  oci://ghcr.io/felipecosta09/charts/trendai-sensor \
-  --version 0.1.0 \
-  --namespace trendai-sensor \
-  --set sensor.ndrAddr=10.0.0.5 | kubectl apply -f -
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.0/trendai-sensor-0.1.0.tgz \
+  --values overrides.yaml \
+  --namespace trendai-sensor | kubectl apply -f -
 ```
 
-If prometheus-operator is installed, enable the bundled `ServiceMonitor`:
+If prometheus-operator is installed, enable the bundled `ServiceMonitor` in
+your `overrides.yaml`:
 
-```
---set prometheus.serviceMonitor.enabled=true
+```yaml
+prometheus:
+  serviceMonitor:
+    enabled: true
 ```
 
 Without prometheus-operator, scrape `<node-ip>:9090` directly (the sensor runs
 on `hostNetwork`).
-
-All tunables are documented in [charts/trendai-sensor/values.yaml](charts/trendai-sensor/values.yaml).
 
 ## Benchmarks
 

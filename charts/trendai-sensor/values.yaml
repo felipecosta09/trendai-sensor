@@ -1,22 +1,58 @@
+# Default values for trendai-sensor.
+# Override only what you need in your own overrides.yaml, then install with:
+#   helm install --values overrides.yaml \
+#     --namespace trendai-sensor --create-namespace \
+#     trendai-sensor \
+#     https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.0/trendai-sensor-0.1.0.tgz
+
+# -- Namespace management. Set namespace.create=false if installing into an
+# existing namespace (pass --namespace <existing> to helm).
 namespace:
   create: true
   name: trendai-sensor
 
+# -- Container image. `tag` falls back to Chart.AppVersion when empty, so a
+# plain `helm install` always pins to the chart's own version — never `:latest`.
 image:
   repository: ghcr.io/felipecosta09/trendai-sensor
   tag: ""
   pullPolicy: IfNotPresent
+  # Image pull secrets — only needed if the image repository is made private.
+  # Format: [{name: my-pull-secret}]
   pullSecrets: []
 
+# -- Sensor runtime configuration. Every field here becomes an env var on the
+# container via the ConfigMap. Defaults match cmd/sensor and internal/config.
 sensor:
+  # NDR appliance IP that captured frames are forwarded to over VXLAN.
+  # REQUIRED in most real deployments — change from the default.
   ndrAddr: "10.0.0.1"
+
+  # VXLAN Network Identifier (VNI) as a hex string, e.g. "0x0a0b0c".
+  # "0" is fine for single-tenant setups.
   vni: "0"
+
+  # MTU of the NDR link in bytes. The sensor drops any frame whose inner
+  # payload + 50 B VXLAN overhead would exceed this value, and counts the
+  # drop under sensor_mtu_exceeded_total.
   ndrMtu: 1500
+
+  # Capture backend: "auto" picks TC-BPF on kernel >= 5.8 with ringbuf,
+  # otherwise AF_PACKET + cBPF. Force with "tcbpf" or "afpacket".
   captureMode: "auto"
+
+  # Log verbosity: debug, info, warn, error. Structured JSON via slog.
   logLevel: "info"
+
+  # Prometheus metrics listener. Uses hostNetwork, so reachable at
+  # <node-ip>:9090 by default.
   metricsAddr: ":9090"
+
+  # Health probe listener — /healthz (liveness) and /readyz (readiness).
   healthAddr: ":8080"
 
+# -- Container resources. Sized for steady-state capture on a moderately
+# busy node; bump limits if you see OOMKill or CPU throttling under load.
 resources:
   requests:
     cpu: 50m
@@ -25,31 +61,48 @@ resources:
     cpu: 300m
     memory: 256Mi
 
+# -- Scheduling. DaemonSet defaults tolerate everything so it lands on every
+# node (including control-plane/tainted nodes). Restrict with nodeSelector
+# or a narrower tolerations list if you only want capture on some nodes.
 tolerations:
   - operator: Exists
 
 nodeSelector: {}
+
 affinity: {}
 
+# -- Pod annotations. Default exposes Prometheus scrape metadata so vanilla
+# Prometheus (no operator) can discover the metrics endpoint.
 podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "9090"
   prometheus.io/path: /metrics
 
+# -- Extra pod labels merged on top of the chart's standard labels.
 podLabels: {}
 
+# -- PriorityClass name for the pod. Leave empty unless you have a cluster
+# PriorityClass defined (e.g. system-node-critical for guaranteed scheduling).
 priorityClassName: ""
 
+# -- Grace period for in-flight frames to drain on SIGTERM.
 terminationGracePeriodSeconds: 10
 
+# -- DaemonSet rolling update behavior. maxUnavailable=1 means one node at a
+# time so capture keeps running cluster-wide during upgrades.
 updateStrategy:
   type: RollingUpdate
   rollingUpdate:
     maxUnavailable: 1
 
+# -- Prometheus Operator integration. Enable `serviceMonitor.enabled` only if
+# prometheus-operator is installed and its Prometheus watches this namespace.
+# Without the operator, the pod annotations above are enough.
 prometheus:
   serviceMonitor:
     enabled: false
     interval: 30s
     path: /metrics
+    # Extra labels for the ServiceMonitor (some Prometheus instances select by
+    # label — e.g. release: kube-prometheus-stack).
     labels: {}
