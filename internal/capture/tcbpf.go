@@ -23,7 +23,7 @@ import (
 
 // Index of DROP_RB_FULL in the BPF drop_counters map. Filter reasons occupy
 // indices 0..len(filter.AllReasons)-1; rb_full sits one past the end.
-const dropRBFullIndex = uint32(6)
+const dropRBFullIndex = uint32(7)
 
 // Generate Go bindings for bpf/filter.c. Requires clang + llvm (for
 // llvm-strip) + libbpf-dev + linux-libc-dev (Debian: apt install clang llvm

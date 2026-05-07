@@ -27,6 +27,18 @@ char LICENSE[] SEC("license") = "GPL";
 #define VXLAN_PORT  bpf_htons(4789)
 #define VXLAN_SRC   bpf_htons(16401)
 
+// K8s plumbing ports dropped as "k8s_noise" — matched on either src or dst so
+// the mirrored return half of each flow is also suppressed. Keep in sync with
+// internal/filter/spec.go Default().
+#define NTP_PORT        bpf_htons(123)
+#define SSH_PORT        bpf_htons(22)
+#define SENSOR_HEALTH   bpf_htons(8080)
+#define SENSOR_METRICS  bpf_htons(9090)
+#define KPROXY_METRICS  bpf_htons(10249)
+#define KUBELET_API     bpf_htons(10250)
+#define KUBELET_RO      bpf_htons(10255)
+#define KPROXY_HEALTHZ  bpf_htons(10256)
+
 #define MAX_CAPTURE 1536 // >= standard 1500-byte MTU frames
 
 struct capture_event {
@@ -50,13 +62,14 @@ struct {
 } drop_counters SEC(".maps");
 
 enum {
-    DROP_NON_IPV4 = 0,
-    DROP_METADATA = 1,
-    DROP_NON_L4   = 2,
-    DROP_DNS      = 3,
-    DROP_VXLAN    = 4,
-    DROP_TRUNC    = 5,
-    DROP_RB_FULL  = 6,
+    DROP_NON_IPV4  = 0,
+    DROP_METADATA  = 1,
+    DROP_NON_L4    = 2,
+    DROP_DNS       = 3,
+    DROP_VXLAN     = 4,
+    DROP_TRUNC     = 5,
+    DROP_K8S_NOISE = 6,
+    DROP_RB_FULL   = 7,
 };
 
 static __always_inline void bump_drop(__u32 reason)
@@ -108,6 +121,29 @@ static __always_inline int handle(struct __sk_buff *skb, __u8 ingress)
         }
         if (udp->source == VXLAN_SRC || udp->dest == VXLAN_PORT) {
             bump_drop(DROP_VXLAN);
+            return TC_ACT_UNSPEC;
+        }
+        if (udp->source == NTP_PORT || udp->dest == NTP_PORT) {
+            bump_drop(DROP_K8S_NOISE);
+            return TC_ACT_UNSPEC;
+        }
+    } else { // IPPROTO_TCP (guarded above)
+        // TCP ports live at the same offset as UDP ports. Reuse udphdr for
+        // the 4-byte src/dst port read to keep the verifier happy without
+        // pulling in the whole tcphdr (which would require a larger bounds
+        // check for its 20-byte minimum size).
+        struct udphdr *tcp = (void *)iph + ihl;
+        if ((void *)(tcp + 1) > data_end)
+            return TC_ACT_UNSPEC;
+        __u16 sp = tcp->source, dp = tcp->dest;
+        if (sp == SSH_PORT       || dp == SSH_PORT       ||
+            sp == SENSOR_HEALTH  || dp == SENSOR_HEALTH  ||
+            sp == SENSOR_METRICS || dp == SENSOR_METRICS ||
+            sp == KPROXY_METRICS || dp == KPROXY_METRICS ||
+            sp == KUBELET_API    || dp == KUBELET_API    ||
+            sp == KUBELET_RO     || dp == KUBELET_RO     ||
+            sp == KPROXY_HEALTHZ || dp == KPROXY_HEALTHZ) {
+            bump_drop(DROP_K8S_NOISE);
             return TC_ACT_UNSPEC;
         }
     }

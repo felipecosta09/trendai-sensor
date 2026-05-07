@@ -76,25 +76,26 @@ prometheus:
     enabled: true   # if prometheus-operator is installed
 ```
 
-Then install directly from the tagged source archive:
+Then install from the packaged chart attached to the GitHub release:
 
 ```
 helm install \
   --values overrides.yaml \
   --namespace trendai-sensor --create-namespace \
   trendai-sensor \
-  https://github.com/felipecosta09/trendai-sensor/archive/refs/tags/v0.1.2.tar.gz
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.3/trendai-sensor-0.1.3.tgz
 ```
 
-The packaged chart is also attached to each GitHub release as
-`trendai-sensor-<version>.tgz` — use either URL, both work with the same
-overrides file.
+The packaged tgz is smaller than the source archive and is the canonical
+install artifact — every tagged release uploads it automatically. Check
+[the releases page](https://github.com/felipecosta09/trendai-sensor/releases/latest)
+for the current tag.
 
 Without Helm — render the chart and pipe to `kubectl`:
 
 ```
 helm template trendai-sensor \
-  https://github.com/felipecosta09/trendai-sensor/archive/refs/tags/v0.1.2.tar.gz \
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.3/trendai-sensor-0.1.3.tgz \
   --values overrides.yaml \
   --namespace trendai-sensor | kubectl apply -f -
 ```

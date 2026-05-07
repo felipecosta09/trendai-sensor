@@ -36,19 +36,24 @@ jobs:
         with:
           version: v3.15.0
 
+      # Chart version is SemVer (no v-prefix); appVersion carries the v-prefix
+      # so templates/_helpers.tpl's `.Chart.AppVersion` fallback resolves to
+      # the same tag that build-push-action just pushed to GHCR.
       - name: Package chart
         id: package
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          CHART_VERSION="${GITHUB_REF_NAME#v}"
           helm package . \
-            --version "${VERSION}" \
-            --app-version "${VERSION}"
-          echo "tgz=trendai-sensor-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
+            --version "${CHART_VERSION}" \
+            --app-version "${GITHUB_REF_NAME}"
+          echo "tgz=trendai-sensor-${CHART_VERSION}.tgz" >> "$GITHUB_OUTPUT"
 
+      # --generate-notes uses .github/release.yml for categorization.
       - name: Create GitHub release with chart asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --generate-notes \
+            --title "${GITHUB_REF_NAME}" \
             "${{ steps.package.outputs.tgz }}"

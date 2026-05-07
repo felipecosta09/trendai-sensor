@@ -3,7 +3,7 @@
 #   helm install --values overrides.yaml \
 #     --namespace trendai-sensor --create-namespace \
 #     trendai-sensor \
-#     https://github.com/felipecosta09/trendai-sensor/archive/refs/tags/v0.1.2.tar.gz
+#     https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.3/trendai-sensor-0.1.3.tgz
 
 # -- Namespace management. Set namespace.create=false if installing into an
 # existing namespace (pass --namespace <existing> to helm).
@@ -34,7 +34,23 @@ sensor:
 
   # MTU of the NDR link in bytes. The sensor drops any frame whose inner
   # payload + 50 B VXLAN overhead would exceed this value, and counts the
-  # drop under sensor_mtu_exceeded_total.
+  # drop under sensor_mtu_exceeded_total. If that counter is climbing, the
+  # underlay supports larger frames than you've told the sensor about —
+  # raise this to match the path MTU end-to-end (sensor node -> NDR data
+  # ENI), not just the local NIC.
+  #
+  # Per-cloud recommendations (outer link MTU to set here):
+  #   AWS   — 9001 if both VPCs and peering have jumbo enabled (ENA default).
+  #           1500 is safe anywhere. VPC peering preserves jumbo within a
+  #           region; inter-region peering caps at 1500.
+  #   Azure — 1500. Azure does not guarantee jumbo across VNet peering or
+  #           load balancers, so raising this usually causes silent drops.
+  #   GCP   — 1460 (default VPC MTU). Raise to 8896 only if you've set the
+  #           VPC MTU accordingly on both sides; GCP's default is *below*
+  #           1500, so leaving it at 1500 will cause mtu_exceeded drops.
+  #   On-prem — 1500 unless you have a jumbo-clean L2/L3 path to the NDR
+  #             (then 9000). Confirm with `ping -M do -s 8972 <ndr-ip>`
+  #             before raising.
   ndrMtu: 1500
 
   # Capture backend: "auto" picks TC-BPF on kernel >= 5.8 with ringbuf,
