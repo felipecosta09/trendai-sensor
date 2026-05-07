@@ -6,7 +6,7 @@
 # endian-neutral (clang -target bpf emits bpfel on both x86_64 and aarch64), so
 # the same filter_bpfel.o is loaded on both archs.
 
-ARG GO_VERSION=1.22
+ARG GO_VERSION=1.23
 ARG DEBIAN_RELEASE=bookworm
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-${DEBIAN_RELEASE} AS builder
