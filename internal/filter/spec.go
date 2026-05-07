@@ -33,6 +33,7 @@ func Default() Spec {
 		K8sNoiseTCPPorts: []uint16{
 			22,    // SSH (bastion/admin)
 			8080,  // sensor health + common k8s liveness probe port
+			8181,  // CoreDNS ready endpoint (kube-probe hits every 5s per node)
 			9090,  // sensor metrics + Prometheus scrape
 			10249, // kube-proxy metrics
 			10250, // kubelet API

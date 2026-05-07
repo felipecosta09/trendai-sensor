@@ -33,6 +33,7 @@ char LICENSE[] SEC("license") = "GPL";
 #define NTP_PORT        bpf_htons(123)
 #define SSH_PORT        bpf_htons(22)
 #define SENSOR_HEALTH   bpf_htons(8080)
+#define COREDNS_READY   bpf_htons(8181)
 #define SENSOR_METRICS  bpf_htons(9090)
 #define KPROXY_METRICS  bpf_htons(10249)
 #define KUBELET_API     bpf_htons(10250)
@@ -141,6 +142,7 @@ static __always_inline int handle(struct __sk_buff *skb, __u8 ingress)
         __u16 sp = tcp->source, dp = tcp->dest;
         if (sp == SSH_PORT       || dp == SSH_PORT       ||
             sp == SENSOR_HEALTH  || dp == SENSOR_HEALTH  ||
+            sp == COREDNS_READY  || dp == COREDNS_READY  ||
             sp == SENSOR_METRICS || dp == SENSOR_METRICS ||
             sp == KPROXY_METRICS || dp == KPROXY_METRICS ||
             sp == KUBELET_API    || dp == KUBELET_API    ||

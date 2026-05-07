@@ -2,8 +2,8 @@ apiVersion: v2
 name: trendai-sensor
 description: Kubernetes node-level network sensor (eBPF capture, VXLAN forwarding).
 type: application
-version: 0.1.4
-appVersion: "v0.1.4"
+version: 0.1.5
+appVersion: "v0.1.5"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/felipecosta09/trendai-sensor
 sources:

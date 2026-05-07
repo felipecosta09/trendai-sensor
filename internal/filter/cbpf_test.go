@@ -56,6 +56,8 @@ func TestAssembleKnownCases(t *testing.T) {
 		{"tcp sensor-metrics dst", buildFrame(0x0800, 6, [4]byte{10, 0, 0, 5}, 40000, 9090), false},
 		{"tcp kubelet dst", buildFrame(0x0800, 6, [4]byte{10, 0, 0, 5}, 40000, 10250), false},
 		{"tcp kproxy-healthz dst", buildFrame(0x0800, 6, [4]byte{10, 0, 0, 5}, 40000, 10256), false},
+		{"tcp coredns-ready dst", buildFrame(0x0800, 6, [4]byte{10, 0, 0, 5}, 40000, 8181), false},
+		{"tcp coredns-ready src", buildFrame(0x0800, 6, [4]byte{10, 0, 0, 5}, 8181, 40000), false},
 		// k8s-noise: TCP, src port (mirrored return half)
 		{"tcp ssh src", buildFrame(0x0800, 6, [4]byte{10, 0, 0, 5}, 22, 40000), false},
 		{"tcp kubelet src", buildFrame(0x0800, 6, [4]byte{10, 0, 0, 5}, 10250, 40000), false},
