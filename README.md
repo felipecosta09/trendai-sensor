@@ -61,9 +61,19 @@ make lint      # go vet + golangci-lint
 ```
 kubectl apply -f deploy/rbac.yaml
 kubectl apply -f deploy/configmap.yaml
+kubectl apply -f deploy/service.yaml
 kubectl apply -f deploy/daemonset.yaml
 ```
+
+If prometheus-operator is installed in the cluster, also apply
+`deploy/servicemonitor.yaml` — it selects the headless `Service` and Prometheus
+will scrape one endpoint per node automatically. Without prometheus-operator,
+scrape `<node-ip>:9090` directly (the sensor runs on `hostNetwork`).
 
 ## Benchmarks
 
 See `benchmarks/README.md` for the load generator and collection harness.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

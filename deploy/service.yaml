@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: trendai-sensor
+  namespace: trendai-sensor
+  labels:
+    app: trendai-sensor
+spec:
+  # Headless: one endpoint per pod, which is what we want for per-node
+  # DaemonSet scraping. A ClusterIP would load-balance across pods and hide
+  # which node produced which sample.
+  clusterIP: None
+  selector:
+    app: trendai-sensor
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
