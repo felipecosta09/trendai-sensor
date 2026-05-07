@@ -52,7 +52,6 @@ type TCBPF struct {
 	ifaces map[int]string // ifindex -> name
 
 	captured atomic.Uint64
-	drops    [8]atomic.Uint64
 	closed   sync.Once
 }
 

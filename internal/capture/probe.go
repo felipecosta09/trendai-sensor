@@ -29,7 +29,9 @@ func Pick(preferred string) (string, error) {
 		return "afpacket", nil
 	case "", "auto":
 		if err := probeTCBPF(); err != nil {
-			return "afpacket", nil
+			// Fallback is the whole point of auto-mode; the probe error is
+			// informational, not a failure the caller should surface.
+			return "afpacket", nil //nolint:nilerr
 		}
 		return "tcbpf", nil
 	default:
