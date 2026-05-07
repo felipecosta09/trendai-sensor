@@ -104,9 +104,28 @@ Without prometheus-operator, scrape `<node-ip>:9090` directly (the sensor runs
 on `hostNetwork`; the default `podAnnotations` already carry the
 `prometheus.io/scrape` metadata).
 
-## Benchmarks
+## Performance
 
-See `benchmarks/README.md` for the load generator and collection harness.
+Measured on a 2-node EKS cluster (t3.medium, AL2023 / kernel 6.1, TC-BPF
+fast path), sensor v0.1.5, light production-style traffic:
+
+- **~1 m CPU / ~10 Mi RAM per sensor pod** — 2 % of the chart's 50 m CPU
+  request, 16 % of its 64 Mi memory request. 0 kernel drops.
+- **Memory is constant per node** (dominated by the preallocated 4 MiB BPF
+  ring buffer). Footprint does **not** grow with pod count; CPU is the only
+  axis that scales with load.
+- **Filter drops 67–76 % of inspected traffic** (IMDS metadata, k8s
+  plumbing, DNS, VXLAN self-loopback) before it leaves the node, cutting
+  both wire bandwidth and NDR ingestion.
+- **VXLAN adds ~20 % byte overhead** per forwarded frame (50 B outer header
+  on a typical small control-plane frame).
+- Rule of thumb: **≈ 0.05 m CPU per observed PPS** at the current filter
+  complexity. The 50 m CPU request is sized for ~250 pods/node of chatty
+  workload; at typical 30–100 pod/node density the sensor uses 2–7 % of
+  its 300 m limit.
+
+For raw counters, per-watched-pod amortization, the scaling projection, and
+the iperf3-driven stress harness, see [`benchmarks/README.md`](benchmarks/README.md).
 
 ## License
 
