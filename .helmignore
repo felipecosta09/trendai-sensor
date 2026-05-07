@@ -1,0 +1,36 @@
+# VCS / tooling
+.DS_Store
+.git/
+.github/
+.gitignore
+.vscode/
+.idea/
+.claude/
+.dockerignore
+.golangci.yml
+*~
+*.bak
+*.tmp
+*.orig
+OWNERS
+
+# Go source + build artifacts (chart sits alongside the sensor code)
+cmd/
+internal/
+bpf/
+benchmarks/
+bin/
+go.mod
+go.sum
+go.work
+go.work.sum
+Dockerfile
+Makefile
+*.go
+
+# Docs / misc (not part of the packaged chart)
+README.md
+LICENSE
+.env
+.env.example
+*.tgz

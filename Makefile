@@ -1,6 +1,6 @@
 IMAGE        ?= ghcr.io/felipecosta09/trendai-sensor
 TAG          ?= latest
-CHART_DIR    ?= charts/trendai-sensor
+CHART_DIR    ?= .
 PLATFORMS    ?= linux/amd64,linux/arm64
 # Host arch for local `make build` — detect with uname so `make build` on an
 # M-series mac cross-compiles to darwin/arm64 stubs, while on a linux/amd64 CI
@@ -78,6 +78,7 @@ helm-template:
 	helm template trendai-sensor $(CHART_DIR)
 
 # Package the chart as a .tgz. Release workflow does this with version from the git tag.
+# .helmignore keeps the Go source + build artifacts out of the tarball.
 helm-package:
 	helm package $(CHART_DIR)
 

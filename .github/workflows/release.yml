@@ -40,7 +40,7 @@ jobs:
         id: package
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          helm package charts/trendai-sensor \
+          helm package . \
             --version "${VERSION}" \
             --app-version "${VERSION}"
           echo "tgz=trendai-sensor-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
