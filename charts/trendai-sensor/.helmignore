@@ -1,0 +1,9 @@
+.DS_Store
+.git/
+.gitignore
+.bak
+.tmp
+.orig
+*~
+# OWNERS files from kubernetes-style projects
+OWNERS

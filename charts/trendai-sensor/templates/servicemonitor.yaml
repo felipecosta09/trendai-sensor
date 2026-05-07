@@ -1,0 +1,23 @@
+{{- if .Values.prometheus.serviceMonitor.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "trendai-sensor.fullname" . }}
+  namespace: {{ include "trendai-sensor.namespace" . }}
+  labels:
+    {{- include "trendai-sensor.labels" . | nindent 4 }}
+    {{- with .Values.prometheus.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "trendai-sensor.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ include "trendai-sensor.namespace" . }}
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.prometheus.serviceMonitor.interval }}
+      path: {{ .Values.prometheus.serviceMonitor.path }}
+{{- end }}

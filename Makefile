@@ -1,5 +1,6 @@
-IMAGE        ?= felipecosta09/trendai-sensor
+IMAGE        ?= ghcr.io/felipecosta09/trendai-sensor
 TAG          ?= latest
+CHART_DIR    ?= charts/trendai-sensor
 PLATFORMS    ?= linux/amd64,linux/arm64
 # Host arch for local `make build` — detect with uname so `make build` on an
 # M-series mac cross-compiles to darwin/arm64 stubs, while on a linux/amd64 CI
@@ -11,7 +12,8 @@ TARGETARCH   ?= $(HOST_ARCH)
 
 .PHONY: all bpf build test lint clean \
         docker docker-buildx docker-push \
-        fmt vet golangci-lint
+        fmt vet golangci-lint \
+        helm-lint helm-template helm-package
 
 all: bpf build
 
@@ -68,9 +70,21 @@ docker-buildx:
 # Alias kept for clarity in CI.
 docker-push: docker-buildx
 
+helm-lint:
+	helm lint $(CHART_DIR)
+
+# Render the chart with default values to stdout. Handy for `| kubectl apply -f -`.
+helm-template:
+	helm template trendai-sensor $(CHART_DIR)
+
+# Package the chart as a .tgz. Release workflow does this with version from the git tag.
+helm-package:
+	helm package $(CHART_DIR)
+
 clean:
 	rm -rf bin/ \
 		internal/capture/sensorbpf_bpfel.go \
 		internal/capture/sensorbpf_bpfel.o \
 		internal/capture/sensorbpf_bpfeb.go \
-		internal/capture/sensorbpf_bpfeb.o
+		internal/capture/sensorbpf_bpfeb.o \
+		trendai-sensor-*.tgz

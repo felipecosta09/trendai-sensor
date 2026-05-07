@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trendai-sensor.fullname" . }}-config
+  namespace: {{ include "trendai-sensor.namespace" . }}
+  labels:
+    {{- include "trendai-sensor.labels" . | nindent 4 }}
+data:
+  SENSOR: {{ .Values.sensor.ndrAddr | quote }}
+  VNI: {{ .Values.sensor.vni | quote }}
+  NDR_MTU: {{ .Values.sensor.ndrMtu | quote }}
+  CAPTURE_MODE: {{ .Values.sensor.captureMode | quote }}
+  LOG_LEVEL: {{ .Values.sensor.logLevel | quote }}
+  METRICS_ADDR: {{ .Values.sensor.metricsAddr | quote }}
+  HEALTH_ADDR: {{ .Values.sensor.healthAddr | quote }}

@@ -1,0 +1,55 @@
+namespace:
+  create: true
+  name: trendai-sensor
+
+image:
+  repository: ghcr.io/felipecosta09/trendai-sensor
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+sensor:
+  ndrAddr: "10.0.0.1"
+  vni: "0"
+  ndrMtu: 1500
+  captureMode: "auto"
+  logLevel: "info"
+  metricsAddr: ":9090"
+  healthAddr: ":8080"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 300m
+    memory: 256Mi
+
+tolerations:
+  - operator: Exists
+
+nodeSelector: {}
+affinity: {}
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: /metrics
+
+podLabels: {}
+
+priorityClassName: ""
+
+terminationGracePeriodSeconds: 10
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+
+prometheus:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    path: /metrics
+    labels: {}

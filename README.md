@@ -56,19 +56,39 @@ make test      # unit tests
 make lint      # go vet + golangci-lint
 ```
 
-## Deploy
+## Install
+
+Helm is the primary install path. Images and charts are published to GHCR.
 
 ```
-kubectl apply -f deploy/rbac.yaml
-kubectl apply -f deploy/configmap.yaml
-kubectl apply -f deploy/service.yaml
-kubectl apply -f deploy/daemonset.yaml
+helm install trendai-sensor \
+  oci://ghcr.io/felipecosta09/charts/trendai-sensor \
+  --version 0.1.0 \
+  --namespace trendai-sensor --create-namespace \
+  --set sensor.ndrAddr=10.0.0.5 \
+  --set sensor.vni=0x0a0b0c
 ```
 
-If prometheus-operator is installed in the cluster, also apply
-`deploy/servicemonitor.yaml` — it selects the headless `Service` and Prometheus
-will scrape one endpoint per node automatically. Without prometheus-operator,
-scrape `<node-ip>:9090` directly (the sensor runs on `hostNetwork`).
+Without Helm — render the chart and pipe to `kubectl`:
+
+```
+helm template trendai-sensor \
+  oci://ghcr.io/felipecosta09/charts/trendai-sensor \
+  --version 0.1.0 \
+  --namespace trendai-sensor \
+  --set sensor.ndrAddr=10.0.0.5 | kubectl apply -f -
+```
+
+If prometheus-operator is installed, enable the bundled `ServiceMonitor`:
+
+```
+--set prometheus.serviceMonitor.enabled=true
+```
+
+Without prometheus-operator, scrape `<node-ip>:9090` directly (the sensor runs
+on `hostNetwork`).
+
+All tunables are documented in [charts/trendai-sensor/values.yaml](charts/trendai-sensor/values.yaml).
 
 ## Benchmarks
 

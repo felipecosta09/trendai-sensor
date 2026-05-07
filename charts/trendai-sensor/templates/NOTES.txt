@@ -1,0 +1,17 @@
+TrendAI Sensor {{ .Chart.AppVersion }} installed into namespace "{{ include "trendai-sensor.namespace" . }}".
+
+Check rollout:
+  kubectl -n {{ include "trendai-sensor.namespace" . }} rollout status ds/{{ include "trendai-sensor.fullname" . }}
+
+Stream logs:
+  kubectl -n {{ include "trendai-sensor.namespace" . }} logs -f ds/{{ include "trendai-sensor.fullname" . }}
+
+Forwarding to NDR: {{ .Values.sensor.ndrAddr }} (VXLAN VNI {{ .Values.sensor.vni }}, MTU {{ .Values.sensor.ndrMtu }}).
+
+Metrics are exposed on :9090 of every node (hostNetwork). Scrape <node-ip>:9090/metrics,
+or set `--set prometheus.serviceMonitor.enabled=true` to register a ServiceMonitor
+for prometheus-operator.
+{{ if .Values.prometheus.serviceMonitor.enabled }}
+ServiceMonitor is ENABLED — Prometheus will discover the sensor automatically
+if the operator watches namespace "{{ include "trendai-sensor.namespace" . }}".
+{{- end }}
