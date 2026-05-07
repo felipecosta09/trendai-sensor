@@ -2,9 +2,15 @@ package filter
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"golang.org/x/net/bpf"
 )
+
+// cbpfMaxSkip is the maximum forward distance a classic-BPF JumpIf can
+// encode. The skip fields are uint8; silently truncating a longer distance
+// produces a filter that drops valid traffic.
+const cbpfMaxSkip = 255
 
 // Ethernet + IPv4 offsets. Indexing into the L4 header uses the "X = IHL*4"
 // idiom (LoadMemShift) so IP options don't throw off UDP/TCP port offsets.
@@ -43,7 +49,7 @@ const (
 //	  tcp.sport in K8sNoiseTCPPorts       -> drop
 //	  tcp.dport in K8sNoiseTCPPorts       -> drop
 //	  -> accept
-func Assemble(spec Spec) []bpf.Instruction {
+func Assemble(spec Spec) ([]bpf.Instruction, error) {
 	metadata := binary.BigEndian.Uint32(spec.MetadataIP[:])
 	dns := uint32(spec.DNSPort)
 	vxDst := uint32(spec.VXLANPort)
@@ -106,17 +112,26 @@ func Assemble(spec Spec) []bpf.Instruction {
 	p = append(p, bpf.RetConstant{Val: dropRet})
 
 	// Patch jumps. All drop sites skip forward to dropIdx; tcpJmp jumps forward
-	// to the TCP block start. cBPF skip fields are uint8 — at current sizes
-	// (tiny default list, ~30 instructions total) every distance fits.
+	// to the TCP block start. cBPF skip fields are uint8 — silently truncating
+	// a longer distance would turn a drop-jump into a no-op and leak noise
+	// upstream, so verify every skip fits before returning.
 	_ = acceptUDPIdx // silence unused-var if future refactor
 	for _, site := range drops {
+		dist := dropIdx - site - 1
+		if dist > cbpfMaxSkip {
+			return nil, fmt.Errorf("cbpf: drop-jump distance %d exceeds uint8 max %d (program too large; trim port lists)", dist, cbpfMaxSkip)
+		}
 		ji := p[site].(bpf.JumpIf)
-		ji.SkipTrue = uint8(dropIdx - site - 1)
+		ji.SkipTrue = uint8(dist)
 		p[site] = ji
 	}
 	if ji, ok := p[tcpJmp].(bpf.JumpIf); ok {
-		ji.SkipTrue = uint8(tcpBlockStart - tcpJmp - 1)
+		dist := tcpBlockStart - tcpJmp - 1
+		if dist > cbpfMaxSkip {
+			return nil, fmt.Errorf("cbpf: tcp-block jump distance %d exceeds uint8 max %d (program too large; trim port lists)", dist, cbpfMaxSkip)
+		}
+		ji.SkipTrue = uint8(dist)
 		p[tcpJmp] = ji
 	}
-	return p
+	return p, nil
 }
