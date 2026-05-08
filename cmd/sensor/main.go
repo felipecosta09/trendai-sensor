@@ -44,6 +44,21 @@ func run() int {
 	go serve(ctx, cfg.MetricsAddr, metrics.Handler(reg))
 	go serve(ctx, cfg.HealthAddr, hs.Handler())
 
+	// Parked mode: no NDR configured. Pod runs, passes health probes, logs
+	// a reminder, but attaches no BPF programs and opens no capture sockets.
+	// Operators can deploy the chart on-cluster to validate scheduling / RBAC
+	// before an NDR endpoint exists; setting SENSOR_NDR_ADDR and restarting
+	// the pod exits this branch and starts real capture. No capture load on
+	// the node until the NDR is configured.
+	if cfg.NDRAddr == "" {
+		hs.MarkReady()
+		slog.Warn("ndr not configured — sensor is parked; set SENSOR_NDR_ADDR (helm: sensor.ndrAddr) and redeploy to start capture")
+		go parkedReminder(ctx)
+		<-ctx.Done()
+		slog.Info("parked sensor exiting")
+		return 0
+	}
+
 	// Pick capture mode.
 	mode, err := capture.Pick(cfg.CaptureMode)
 	if err != nil {
@@ -113,6 +128,21 @@ func run() int {
 	}
 	slog.Info("capture channel closed, exiting")
 	return 0
+}
+
+// parkedReminder nudges the operator every 10 s that the sensor is idle
+// waiting for SENSOR_NDR_ADDR. Runs until ctx is cancelled.
+func parkedReminder(ctx context.Context) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			slog.Warn("ndr not configured — sensor is parked; set SENSOR_NDR_ADDR and redeploy")
+		}
+	}
 }
 
 func setupLogger(level string) {
