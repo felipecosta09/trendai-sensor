@@ -20,6 +20,11 @@ spec:
         {{- end }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.prometheus.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.sensor.metricsAddr | trimPrefix ":" | quote }}
+        prometheus.io/path: /metrics
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -67,9 +72,11 @@ spec:
             - configMapRef:
                 name: {{ include "trendai-sensor.fullname" . }}-config
           ports:
+            {{- if .Values.prometheus.enabled }}
             - name: metrics
-              containerPort: 9090
+              containerPort: {{ .Values.sensor.metricsAddr | trimPrefix ":" | int }}
               protocol: TCP
+            {{- end }}
             - name: health
               containerPort: 8080
               protocol: TCP

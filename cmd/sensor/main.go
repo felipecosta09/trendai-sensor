@@ -40,8 +40,16 @@ func run() int {
 	m := metrics.New(reg)
 	hs := health.New(30 * time.Second)
 
-	// HTTP servers (metrics + health).
-	go serve(ctx, cfg.MetricsAddr, metrics.Handler(reg))
+	// HTTP servers. Metrics listener is opt-in — the chart sets
+	// METRICS_ADDR="" when prometheus.enabled=false so customers without a
+	// Prometheus aren't forced to expose an HTTP endpoint from a privileged
+	// pod. Counters still exist in-process and still feed the 10-s tick log.
+	// Health probes are always on — kubelet needs them for liveness/readiness.
+	if cfg.MetricsAddr != "" {
+		go serve(ctx, cfg.MetricsAddr, metrics.Handler(reg))
+	} else {
+		slog.Info("prometheus disabled — /metrics HTTP server not started")
+	}
 	go serve(ctx, cfg.HealthAddr, hs.Handler())
 
 	// Parked mode: no NDR configured. Pod runs, passes health probes, logs
