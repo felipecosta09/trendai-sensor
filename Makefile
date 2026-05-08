@@ -9,6 +9,9 @@ HOST_OS      := $(shell go env GOOS)
 HOST_ARCH    := $(shell go env GOARCH)
 TARGETOS     ?= linux
 TARGETARCH   ?= $(HOST_ARCH)
+# Version injected into sensor_info{version=...}. Release workflow overrides
+# this to the git tag (e.g. v0.1.7); plain `make build` produces "dev".
+VERSION      ?= dev
 
 .PHONY: all bpf build test lint clean \
         docker docker-buildx docker-push \
@@ -29,7 +32,8 @@ bpf:
 BPF_GENERATED := internal/capture/sensorbpf_bpfel.go
 build: $(BPF_GENERATED)
 	CGO_ENABLED=0 GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) \
-		go build -trimpath -ldflags="-s -w" -o bin/sensor-$(TARGETOS)-$(TARGETARCH) ./cmd/sensor
+		go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" \
+		-o bin/sensor-$(TARGETOS)-$(TARGETARCH) ./cmd/sensor
 
 $(BPF_GENERATED):
 	@echo "error: BPF bindings missing — run 'make bpf' first"

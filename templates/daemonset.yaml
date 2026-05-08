@@ -68,6 +68,12 @@ spec:
                 - NET_ADMIN
                 - BPF
                 - PERFMON
+          env:
+            # Surfaced as sensor_info{node=...} so dashboards can group by node.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           envFrom:
             - configMapRef:
                 name: {{ include "trendai-sensor.fullname" . }}-config

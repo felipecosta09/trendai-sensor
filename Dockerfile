@@ -13,6 +13,9 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-${DEBIAN_RELEASE} AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
+# VERSION is injected into sensor_info{version=...}. Release workflow passes
+# the git tag (e.g. v0.1.7); local builds fall back to "dev".
+ARG VERSION=dev
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         clang \
@@ -39,7 +42,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-        go build -trimpath -ldflags="-s -w" -o /out/sensor ./cmd/sensor
+        go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+        -o /out/sensor ./cmd/sensor
 
 # distroless/static is ~2 MiB, has ca-certs and tzdata, no shell. Root by
 # default — the pod spec drops all caps and adds only NET_RAW/NET_ADMIN/BPF/

@@ -22,6 +22,7 @@ func TestNewRegistersAllCollectors(t *testing.T) {
 	// scrape — trigger one series per vec so we can assert presence.
 	m.PacketsCaptured.WithLabelValues("eth0", "ingress").Add(0)
 	m.CaptureMode.WithLabelValues("tcbpf").Set(0)
+	m.Info.WithLabelValues("v0.1.7", "node-a", "tcbpf", "true").Set(1)
 
 	body := scrape(t, reg)
 
@@ -34,6 +35,7 @@ func TestNewRegistersAllCollectors(t *testing.T) {
 		"sensor_mtu_exceeded_total",
 		"sensor_ndr_send_errors_total",
 		"sensor_capture_mode",
+		"sensor_info",
 	}
 	for _, name := range want {
 		if !strings.Contains(body, name) {
@@ -90,6 +92,21 @@ func TestCounterDeltaPatternNoDoubleCount(t *testing.T) {
 	body := scrape(t, reg)
 	if !strings.Contains(body, "sensor_packets_dropped_kernel_total 12") {
 		t.Errorf("expected kernel_drops=12, got:\n%s", body)
+	}
+}
+
+// sensor_info{version,node,mode,ndr_configured} must survive a scrape with
+// every label set. Guards against someone dropping or renaming a label —
+// dashboards rely on `group by (version) (sensor_info)` for rolling-upgrade
+// tracking and alerts on `max(sensor_info{ndr_configured="false"})`.
+func TestSensorInfoLabelsPresent(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := New(reg)
+	m.Info.WithLabelValues("v0.1.7", "node-a", "parked", "false").Set(1)
+	body := scrape(t, reg)
+	needle := `sensor_info{mode="parked",ndr_configured="false",node="node-a",version="v0.1.7"} 1`
+	if !strings.Contains(body, needle) {
+		t.Errorf("expected %q in scrape, got:\n%s", needle, body)
 	}
 }
 

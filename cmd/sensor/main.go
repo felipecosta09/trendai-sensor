@@ -20,6 +20,14 @@ import (
 	"github.com/trendai/sensor/internal/metrics"
 )
 
+// version is populated at build time via
+//
+//	-ldflags "-X main.version=<tag>"
+//
+// and surfaces as sensor_info{version=...}. Left as "dev" when the linker
+// flag is missing so a plain `go build` doesn't explode.
+var version = "dev"
+
 func main() {
 	os.Exit(run())
 }
@@ -31,7 +39,7 @@ func run() int {
 		return 2
 	}
 	setupLogger(cfg.LogLevel)
-	slog.Info("starting", "ndr", cfg.NDRAddr, "vni", cfg.VNI, "mtu", cfg.NDRMTU, "mode", cfg.CaptureMode)
+	slog.Info("starting", "version", version, "ndr", cfg.NDRAddr, "vni", cfg.VNI, "mtu", cfg.NDRMTU, "mode", cfg.CaptureMode)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -39,6 +47,16 @@ func run() int {
 	reg := prometheus.NewRegistry()
 	m := metrics.New(reg)
 	hs := health.New(30 * time.Second)
+
+	// sensor_info always carries version/node so a rolling upgrade is visible
+	// via `group by (version) (sensor_info)`. mode and ndr_configured start
+	// as placeholders; main fills them in before capture starts, parked mode
+	// fills them in before blocking on ctx.
+	node := os.Getenv("NODE_NAME")
+	ndrConfigured := "false"
+	if cfg.NDRAddr != "" {
+		ndrConfigured = "true"
+	}
 
 	// HTTP servers. Metrics listener is opt-in — the chart sets
 	// METRICS_ADDR="" when prometheus.enabled=false so customers without a
@@ -59,6 +77,7 @@ func run() int {
 	// the pod exits this branch and starts real capture. No capture load on
 	// the node until the NDR is configured.
 	if cfg.NDRAddr == "" {
+		m.Info.WithLabelValues(version, node, "parked", ndrConfigured).Set(1)
 		hs.MarkReady()
 		slog.Warn("ndr not configured — sensor is parked; set SENSOR_NDR_ADDR (helm: sensor.ndrAddr) and redeploy to start capture")
 		go parkedReminder(ctx)
@@ -75,6 +94,7 @@ func run() int {
 	}
 	slog.Info("capture mode selected", "mode", mode)
 	m.CaptureMode.WithLabelValues(mode).Set(1)
+	m.Info.WithLabelValues(version, node, mode, ndrConfigured).Set(1)
 
 	// Build capturer.
 	var cap capture.Capturer
