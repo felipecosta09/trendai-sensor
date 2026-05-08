@@ -25,8 +25,11 @@ image:
 # container via the ConfigMap. Defaults match cmd/sensor and internal/config.
 sensor:
   # NDR appliance IP that captured frames are forwarded to over VXLAN.
-  # REQUIRED in most real deployments — change from the default.
-  ndrAddr: "10.0.0.1"
+  # Leave empty to deploy in "parked" mode — the sensor pod runs, passes
+  # health probes, and logs a reminder every 10 s, but attaches no BPF
+  # programs, opens no capture sockets, and forwards nothing until an NDR
+  # address is set and the pod is restarted.
+  ndrAddr: ""
 
   # VXLAN Network Identifier (VNI) as a hex string, e.g. "0x0a0b0c".
   # "0" is fine for single-tenant setups.

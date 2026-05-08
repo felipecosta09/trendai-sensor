@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-var allKeys = []string{"SENSOR", "VNI", "NDR_MTU", "CAPTURE_MODE", "LOG_LEVEL", "METRICS_ADDR", "HEALTH_ADDR"}
+var allKeys = []string{"SENSOR_NDR_ADDR", "VNI", "NDR_MTU", "CAPTURE_MODE", "LOG_LEVEL", "METRICS_ADDR", "HEALTH_ADDR"}
 
 func TestLoadDefaults(t *testing.T) {
 	unsetAll(t)
@@ -15,7 +15,7 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	want := Config{
-		NDRAddr:     "10.0.0.1",
+		NDRAddr:     "",
 		VNI:         0,
 		NDRMTU:      1500,
 		CaptureMode: "auto",

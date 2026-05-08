@@ -20,7 +20,7 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		NDRAddr:     getenv("SENSOR", "10.0.0.1"),
+		NDRAddr:     getenv("SENSOR_NDR_ADDR", ""),
 		CaptureMode: getenv("CAPTURE_MODE", "auto"),
 		LogLevel:    strings.ToLower(getenv("LOG_LEVEL", "info")),
 		MetricsAddr: getenv("METRICS_ADDR", ":9090"),
