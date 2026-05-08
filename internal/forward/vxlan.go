@@ -18,11 +18,18 @@ import (
 const VXLANOverhead = 50
 
 // Forwarder wraps a UDP socket to the NDR with a reusable VXLAN header.
+//
+// Send is called from a single goroutine (the main packet loop in
+// cmd/sensor/main.go ranges over the capture channel). buf is a reusable
+// scratch slice sized at innerMax+8 so each Send does one copy+Write
+// instead of allocating a fresh []byte per frame. If Forwarder ever gets
+// used from multiple goroutines this needs a mutex or sync.Pool.
 type Forwarder struct {
 	conn     *net.UDPConn
 	header   [8]byte
 	dst      *net.UDPAddr
 	innerMax int
+	buf      []byte
 
 	sent        atomic.Uint64
 	sendErrors  atomic.Uint64
@@ -54,12 +61,16 @@ func New(ndrAddr string, vni uint32, ndrMTU int) (*Forwarder, error) {
 	// VNI occupies the upper 24 bits of the second word.
 	binary.BigEndian.PutUint32(hdr[4:8], vni<<8)
 
-	return &Forwarder{
+	innerMax := ndrMTU - VXLANOverhead
+	f := &Forwarder{
 		conn:     conn,
 		header:   hdr,
 		dst:      dst,
-		innerMax: ndrMTU - VXLANOverhead,
-	}, nil
+		innerMax: innerMax,
+		buf:      make([]byte, innerMax+8),
+	}
+	copy(f.buf[:8], f.header[:])
+	return f, nil
 }
 
 // Send encapsulates one frame and writes it to the NDR. Returns the number
@@ -69,16 +80,16 @@ func (f *Forwarder) Send(frame []byte) int {
 		f.mtuExceeded.Add(1)
 		return 0
 	}
-	buf := make([]byte, 8+len(frame))
-	copy(buf[:8], f.header[:])
-	copy(buf[8:], frame)
-	n, err := f.conn.Write(buf)
+	// f.buf[:8] holds the VXLAN header written once in New and never mutated
+	// afterwards — skip re-copying it every frame.
+	n := copy(f.buf[8:8+len(frame)], frame)
+	written, err := f.conn.Write(f.buf[:8+n])
 	if err != nil {
 		f.sendErrors.Add(1)
 		return 0
 	}
 	f.sent.Add(1)
-	f.bytesOut.Add(uint64(n))
+	f.bytesOut.Add(uint64(written))
 	return len(frame)
 }
 
