@@ -10,22 +10,30 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// readLoop blocks in unix.Read with no deadline; the only way a ctx-watcher
-// goroutine can unblock it on a quiet node is to close the fd and have the
-// EBADF branch exit the loop. If this test hangs we regressed the fix for
-// the v0.1.6 / v0.1.7 shutdown deadlock.
+// readLoop must exit cleanly when unix.Read returns EBADF — that is the
+// codepath the Start() ctx-watcher relies on to unblock a quiet-node
+// shutdown (see afpacket.go:85-91 and the v0.1.7 plan's traced deadlock).
 //
-// A pipe fd stands in for an AF_PACKET socket here — unit tests don't have
-// CAP_NET_RAW — but the blocking + EBADF-on-close semantics are the same.
-func TestReadLoopExitsOnFDClose(t *testing.T) {
+// Two things we can't test in a userspace unit test:
+//  1. AF_PACKET sockets specifically (no CAP_NET_RAW in CI).
+//  2. The kernel wake-on-close semantic that turns a *blocked* Read into
+//     EBADF on AF_PACKET. Pipe fds don't share that semantic — closing
+//     a pipe's read-end while another goroutine is blocked reading from
+//     it will NOT wake the reader on Linux.
+//
+// What we can test is the Go-side invariant: given a Read that returns
+// EBADF, readLoop returns. Close the fd first, start readLoop, the very
+// first unix.Read call gets EBADF and the EBADF branch exits the loop.
+func TestReadLoopExitsOnEBADF(t *testing.T) {
 	fds := make([]int, 2)
 	if err := unix.Pipe(fds); err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
 	r, w := fds[0], fds[1]
-	defer unix.Close(w)
+	_ = unix.Close(w)
+	_ = unix.Close(r) // r is now invalid — next unix.Read returns EBADF
 
-	a := &AFPacket{buf: 4096, sockets: map[string]int{"test": r}}
+	a := &AFPacket{buf: 4096, sockets: map[string]int{}}
 	out := make(chan Packet, 1)
 	done := make(chan struct{})
 	go func() {
@@ -33,17 +41,10 @@ func TestReadLoopExitsOnFDClose(t *testing.T) {
 		close(done)
 	}()
 
-	// Give readLoop a beat to enter unix.Read before we close the fd.
-	time.Sleep(20 * time.Millisecond)
-
-	if err := unix.Close(r); err != nil {
-		t.Fatalf("close fd: %v", err)
-	}
-
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatalf("readLoop did not exit within 1s after fd close")
+		t.Fatalf("readLoop did not exit within 1s on closed fd")
 	}
 }
 
