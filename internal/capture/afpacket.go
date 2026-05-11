@@ -355,6 +355,10 @@ func (a *AFPacket) closeFDs() {
 	for _, fd := range a.sockets {
 		_ = unix.Close(fd)
 	}
+	// Clear maps so a post-close Detach finds nothing and cannot operate on
+	// stale (or OS-reused) fd integers.
+	a.sockets = make(map[string]int)
+	a.ifaceByFD = make(map[int32]string)
 	a.socketsMu.Unlock()
 	if a.epollFD >= 0 {
 		_ = unix.Close(a.epollFD)

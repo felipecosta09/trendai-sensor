@@ -117,18 +117,15 @@ func run() int {
 	}
 	defer cap.Close()
 
-	// Interfaces — always capture primary NIC(s) plus any pod-veth interfaces
-	// present at startup. The watcher below dynamically attaches/detaches as
-	// pods come and go, so the initial pod-veth list may be empty on a node
-	// with no running workloads yet.
+	// Interfaces — attach to primary NIC(s) at startup. Pod-veth interfaces
+	// are managed entirely by the watcher goroutine below: it snapshots
+	// existing pod-veths before entering its event loop, so all interfaces
+	// present at startup are attached via Attach() before any traffic is missed.
 	var ifaces []string
 	ifaces, err = iface.List()
 	if err != nil || len(ifaces) == 0 {
 		slog.Error("no capture interfaces", "err", err, "found", ifaces)
 		return 1
-	}
-	if podVeths, pvErr := iface.ListPodVeths(); pvErr == nil && len(podVeths) > 0 {
-		ifaces = append(ifaces, podVeths...)
 	}
 	slog.Info("interfaces", "list", ifaces)
 

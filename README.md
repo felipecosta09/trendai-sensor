@@ -6,7 +6,7 @@ appliance over VXLAN. One pod per node; no sidecar required.
 
 ## Requirements
 
-- Kubernetes 1.24+
+- Kubernetes 1.25+
 - Helm 3
 - TrendAI NDR appliance reachable from the nodes (or deploy in parked mode first)
 - Linux kernel ≥ 4.15 (TC-BPF fast path requires ≥ 5.8)
@@ -167,10 +167,12 @@ Useful metrics:
 |--------|------|-------------|
 | `sensor_packets_captured_total` | counter | Packets read by the sensor, by iface and direction |
 | `sensor_packets_forwarded_total` | counter | Packets successfully forwarded to the NDR |
+| `sensor_bytes_forwarded_total` | counter | Wire bytes sent to the NDR (VXLAN encapsulated) |
 | `sensor_packets_dropped_kernel_total` | counter | Kernel-level drops (ring buffer / socket overflow) |
 | `sensor_packets_dropped_filter_total` | counter | In-kernel filter drops, by reason |
 | `sensor_mtu_exceeded_total` | counter | Frames dropped because inner + overhead > NDR MTU |
-| `sensor_send_errors_total` | counter | VXLAN send failures |
+| `sensor_ndr_send_errors_total` | counter | VXLAN send failures |
+| `sensor_capture_mode` | gauge | 1 for the active capture backend (`tcbpf` or `afpacket`), 0 for the other |
 | `sensor_info` | gauge | Always 1; labels: `version`, `node`, `mode`, `ndr_configured` |
 
 Useful alerts:

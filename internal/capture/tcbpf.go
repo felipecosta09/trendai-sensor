@@ -284,6 +284,10 @@ func (t *TCBPF) Close() error {
 				}
 			}
 		}
+		// Clear maps so a post-close Detach (e.g. a watcher RTM_DELLINK event
+		// racing with shutdown) finds nothing and skips the now-invalid handles.
+		t.links = make(map[int][]link.Link)
+		t.ifaces = make(map[int]string)
 		t.linksMu.Unlock()
 		if err := t.objs.Close(); err != nil && firstErr == nil {
 			firstErr = err

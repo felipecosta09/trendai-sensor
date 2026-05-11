@@ -68,6 +68,9 @@ func New(reg *prometheus.Registry) *Metrics {
 	for _, r := range filter.AllReasons {
 		m.FilterDrops.WithLabelValues(string(r)).Add(0)
 	}
+	for _, mode := range []string{"tcbpf", "afpacket"} {
+		m.CaptureMode.WithLabelValues(mode).Set(0)
+	}
 	return m
 }
 

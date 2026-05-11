@@ -1,4 +1,4 @@
 sensor:
-  ndrAddr: ""            # parked — validate capture via metrics, not NDR forwarding
+  ndrAddr: "127.0.0.1"  # loopback stub: sensor starts capture; send fails harmlessly
 prometheus:
   enabled: true          # metric assertions read /metrics

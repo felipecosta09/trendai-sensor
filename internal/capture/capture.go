@@ -47,10 +47,12 @@ type Capturer interface {
 	// An empty ifaces slice is allowed; call Attach to add interfaces later.
 	Start(ctx context.Context, ifaces []string) (<-chan Packet, error)
 	// Attach dynamically adds capture on a single interface after Start.
-	// Safe to call from a goroutine concurrent with the event loop. No-op if
+	// Safe to call from a goroutine concurrent with the packet drain loop, but
+	// must not be called concurrently with itself or with Detach. No-op if
 	// the interface is already attached.
 	Attach(iface string) error
-	// Detach removes capture from a single interface. No-op if not attached.
+	// Detach removes capture from a single interface. Must not be called
+	// concurrently with Attach. No-op if not attached.
 	Detach(iface string) error
 	// Stats returns a snapshot of kernel/filter drop counters.
 	Stats() Stats

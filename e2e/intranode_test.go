@@ -63,7 +63,9 @@ func TestIntraNodeCapture(t *testing.T) {
 		if !strings.HasPrefix(line, "sensor_packets_captured_total") {
 			continue
 		}
-		if strings.HasSuffix(strings.TrimSpace(line), "0") {
+		// Prometheus text format: metric{labels} value. Parse the last field.
+		parts := strings.Fields(line)
+		if len(parts) < 2 || parts[len(parts)-1] == "0" {
 			continue
 		}
 		found = true
