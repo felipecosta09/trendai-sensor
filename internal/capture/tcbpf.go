@@ -45,12 +45,13 @@ const (
 )
 
 type TCBPF struct {
-	objs    sensorBPFObjects
-	linksMu sync.RWMutex
-	links   map[int][]link.Link // ifindex -> [ingressLink, egressLink]
-	rb      *ringbuf.Reader
-	rbOnce  sync.Once
-	ifaces  map[int]string // ifindex -> name
+	objs     sensorBPFObjects
+	linksMu  sync.RWMutex
+	links    map[int][]link.Link // ifindex -> [ingressLink, egressLink]
+	rb       *ringbuf.Reader
+	rbOnce   sync.Once
+	readerWG sync.WaitGroup
+	ifaces   map[int]string // ifindex -> name
 
 	captured atomic.Uint64
 	closed   sync.Once
@@ -113,6 +114,7 @@ func (t *TCBPF) Start(ctx context.Context, ifaces []string) (<-chan Packet, erro
 	}()
 
 	out := make(chan Packet, 1024)
+	t.readerWG.Add(1)
 	go t.reader(ctx, out)
 	return out, nil
 }
@@ -158,6 +160,7 @@ func (t *TCBPF) attach(l *net.Interface) error {
 }
 
 func (t *TCBPF) reader(ctx context.Context, out chan<- Packet) {
+	defer t.readerWG.Done()
 	defer close(out)
 	for {
 		rec, err := t.rb.Read()
@@ -276,6 +279,9 @@ func (t *TCBPF) Close() error {
 		if err := t.closeRB(); err != nil && firstErr == nil {
 			firstErr = err
 		}
+		// Wait for reader() to drain the ring buffer and exit before closing
+		// the BPF objects — accessing t.objs after Close() is a use-after-free.
+		t.readerWG.Wait()
 		t.linksMu.Lock()
 		for _, ls := range t.links {
 			for _, l := range ls {
