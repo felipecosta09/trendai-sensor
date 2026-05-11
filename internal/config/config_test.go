@@ -37,6 +37,8 @@ func TestLoadVNI(t *testing.T) {
 	}{
 		{"zero", "0", 0, ""},
 		{"small hex", "1a", 0x1a, ""},
+		{"0x prefix", "0x1a", 0x1a, ""},
+		{"0x uppercase digits", "0xABCDEF", 0xabcdef, ""},
 		{"max 24-bit", "ffffff", 0xffffff, ""},
 		{"overflow 24-bit", "1000000", 0, "exceeds 24 bits"},
 		{"not hex", "gg", 0, "not hex"},

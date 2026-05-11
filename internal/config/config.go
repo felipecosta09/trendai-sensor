@@ -28,7 +28,7 @@ func Load() (Config, error) {
 	}
 
 	vniStr := getenv("VNI", "0")
-	vni, err := strconv.ParseUint(vniStr, 16, 32)
+	vni, err := strconv.ParseUint(strings.TrimPrefix(vniStr, "0x"), 16, 32)
 	if err != nil {
 		return c, fmt.Errorf("VNI %q not hex: %w", vniStr, err)
 	}
