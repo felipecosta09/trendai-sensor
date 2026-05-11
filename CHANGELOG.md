@@ -2,12 +2,12 @@
 
 ### Added
 
-- **`captureIntraNode` flag** (`CAPTURE_INTRA_NODE`, default `false`). When
-  enabled, the sensor attaches TC-BPF / AF\_PACKET to CNI pod-veth interfaces
-  instead of the primary NIC (`eth0`), making same-node pod-to-pod traffic
-  visible to NDR. Supported CNIs: aws-vpc-cni (`eni*`), Azure CNI (`azv*`),
-  kubenet / generic (`veth*`), Calico non-eBPF (`cali*`). Cilium is not
-  supported — its eBPF datapath bypasses veth traversal.
+- **Automatic intra-node pod-to-pod capture.** The sensor now attaches
+  TC-BPF / AF\_PACKET to CNI pod-veth interfaces in addition to the primary
+  NIC (`eth0`), making same-node pod-to-pod traffic visible to NDR with no
+  configuration required. Supported CNIs: aws-vpc-cni (`eni*`), Azure CNI
+  (`azv*`), kubenet / generic (`veth*`), Calico non-eBPF (`cali*`). Cilium is
+  not supported — its eBPF datapath bypasses veth traversal.
 - **`iface.Watch`** — netlink subscriber that fires `Attach`/`Detach` as pods
   start and stop. No sensor restart required for new pods; handles a pre-cancelled
   context within < 1 s per the capture-path rule.
@@ -22,9 +22,9 @@
 ### Changed
 
 - `Capturer.Start` with an empty interface list now logs a warning instead of
-  returning an error. This is required for `captureIntraNode` startup on nodes
-  that have no pods yet; the default path (`captureIntraNode=false`) still
-  fatal-errors on an empty interface list.
+  returning an error. This allows startup on nodes that have no pods yet — the
+  watcher attaches as pods appear. The primary NIC path still fatal-errors on
+  an empty interface list.
 
 ---
 

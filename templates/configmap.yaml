@@ -10,7 +10,6 @@ data:
   VNI: {{ .Values.sensor.vni | quote }}
   NDR_MTU: {{ .Values.sensor.ndrMtu | quote }}
   CAPTURE_MODE: {{ .Values.sensor.captureMode | quote }}
-  CAPTURE_INTRA_NODE: {{ .Values.sensor.captureIntraNode | quote }}
   LOG_LEVEL: {{ .Values.sensor.logLevel | quote }}
   METRICS_ADDR: {{ if .Values.prometheus.enabled }}{{ .Values.sensor.metricsAddr | quote }}{{ else }}""{{ end }}
   HEALTH_ADDR: {{ .Values.sensor.healthAddr | quote }}

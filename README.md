@@ -86,7 +86,6 @@ ConfigMap. Set them in your `overrides.yaml`.
 | `sensor.vni` | `"0"` | VXLAN Network Identifier (hex string). |
 | `sensor.ndrMtu` | `1500` | MTU of the link to the NDR appliance. Frames whose inner payload + 50 B VXLAN overhead would exceed this are dropped and counted. |
 | `sensor.captureMode` | `"auto"` | Capture backend: `auto`, `tcbpf`, or `afpacket`. |
-| `sensor.captureIntraNode` | `false` | Capture pod-to-pod traffic on the same node. See [Intra-node capture](#intra-node-capture). |
 | `sensor.logLevel` | `"info"` | Log verbosity: `debug`, `info`, `warn`, `error`. |
 | `sensor.metricsAddr` | `":9090"` | Prometheus endpoint (only active when `prometheus.enabled=true`). |
 | `sensor.healthAddr` | `":8080"` | Liveness (`/healthz`) and readiness (`/readyz`) probes. |
@@ -117,14 +116,14 @@ the NDR appliance is provisioned.
 
 ## Intra-node capture
 
-By default the sensor captures traffic on the primary node NIC (`eth0`),
-which does not see packets exchanged between two pods on the same node —
-those are switched inside the kernel via CNI veth pairs.
+The sensor captures both the primary node NIC (`eth0`) and CNI pod-veth
+interfaces automatically. Pod-to-pod traffic on the same node is switched
+entirely inside the kernel via veth pairs and never reaches `eth0` — the
+sensor attaches to both so no traffic is missed.
 
-Set `sensor.captureIntraNode: true` to attach to pod-veth interfaces
-instead. When enabled, the sensor skips `eth0` entirely and listens on
-each pod's host-side veth. A netlink watcher attaches new interfaces as
-pods start and detaches them when pods stop — no sensor restart required.
+A netlink watcher dynamically attaches to new pod-veth interfaces as pods
+start and detaches them when pods stop. No sensor restart or configuration
+is required.
 
 ### Supported CNIs
 
@@ -139,27 +138,8 @@ pods start and detaches them when pods stop — no sensor restart required.
 > before they traverse the veth pair, so veth-level capture misses most
 > traffic. If you need intra-node capture on Cilium, open an issue.
 
-### How to enable
-
-Add to your `overrides.yaml`:
-
-```yaml
-sensor:
-  ndrAddr: 10.0.0.5
-  captureIntraNode: true
-```
-
-Then upgrade the release:
-
-```bash
-helm upgrade trendai-sensor \
-  --values overrides.yaml \
-  --namespace trendai-sensor \
-  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.9/trendai-sensor-0.1.9.tgz
-```
-
-Sensor logs will show `"pod veth appeared, attaching"` and `"pod veth
-removed, detaching"` as pods start and stop.
+Sensor logs show `"pod veth appeared, attaching"` and `"pod veth removed,
+detaching"` as pods start and stop.
 
 ## Observability
 
