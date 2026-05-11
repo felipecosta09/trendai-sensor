@@ -10,7 +10,16 @@ spec:
   selector:
     {{- include "trendai-sensor.selectorLabels" . | nindent 4 }}
   ports:
+    {{- if .Values.prometheus.enabled }}
     - name: metrics
-      port: 9090
-      targetPort: 9090
+      port: {{ .Values.sensor.metricsAddr | trimPrefix ":" | int }}
+      targetPort: {{ .Values.sensor.metricsAddr | trimPrefix ":" | int }}
       protocol: TCP
+    {{- else }}
+    # Prometheus disabled — expose only the health port so the headless
+    # Service still resolves (it has no selector-less endpoints otherwise).
+    - name: health
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    {{- end }}

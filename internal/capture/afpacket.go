@@ -82,6 +82,14 @@ func (a *AFPacket) Start(ctx context.Context, ifaces []string) (<-chan Packet, e
 			a.readLoop(ctx, name, fd, out)
 		}(name, fd)
 	}
+	// unix.Read blocks indefinitely with no deadline; on a quiet node ctx
+	// cancellation alone would never unblock it. Closing the fds here makes
+	// the in-flight Read return EBADF, which the readLoop already handles.
+	// Mirrors the TC-BPF ringbuf close-on-ctx pattern from v0.1.6.
+	go func() {
+		<-ctx.Done()
+		_ = a.Close()
+	}()
 	go func() { wg.Wait(); close(out) }()
 	return out, nil
 }

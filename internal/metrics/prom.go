@@ -21,6 +21,7 @@ type Metrics struct {
 	MTUExceeded      prometheus.Counter
 	SendErrors       prometheus.Counter
 	CaptureMode      *prometheus.GaugeVec
+	Info             *prometheus.GaugeVec
 }
 
 // New registers all counters on the default registry and returns the struct.
@@ -54,10 +55,15 @@ func New(reg *prometheus.Registry) *Metrics {
 			prometheus.GaugeOpts{Name: "sensor_capture_mode", Help: "1 for the active capture mode, 0 otherwise."},
 			[]string{"mode"},
 		),
+		Info: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{Name: "sensor_info", Help: "Static build/runtime info. Value is always 1; all signal is in the labels."},
+			[]string{"version", "node", "mode", "ndr_configured"},
+		),
 	}
 	reg.MustRegister(
 		m.PacketsCaptured, m.PacketsForwarded, m.BytesForwarded,
 		m.FilterDrops, m.KernelDrops, m.MTUExceeded, m.SendErrors, m.CaptureMode,
+		m.Info,
 	)
 	for _, r := range filter.AllReasons {
 		m.FilterDrops.WithLabelValues(string(r)).Add(0)

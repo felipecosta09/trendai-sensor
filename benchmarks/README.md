@@ -105,7 +105,7 @@ or to re-measure on different hardware.
 
 1. Kubernetes node with ≥ 2 vCPU, kernel ≥ 5.8 for the TC-BPF path.
 2. Deploy the sensor (`../deploy/`) on the target node.
-3. NDR appliance reachable at the configured `SENSOR` IP, or replace the
+3. NDR appliance reachable at the configured `SENSOR_NDR_ADDR`, or replace the
    forwarder target with a local `tcpdump -i any -w /dev/null udp port 4789`
    to sink traffic without skewing numbers.
 

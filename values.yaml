@@ -25,8 +25,11 @@ image:
 # container via the ConfigMap. Defaults match cmd/sensor and internal/config.
 sensor:
   # NDR appliance IP that captured frames are forwarded to over VXLAN.
-  # REQUIRED in most real deployments — change from the default.
-  ndrAddr: "10.0.0.1"
+  # Leave empty to deploy in "parked" mode — the sensor pod runs, passes
+  # health probes, and logs a reminder every 10 s, but attaches no BPF
+  # programs, opens no capture sockets, and forwards nothing until an NDR
+  # address is set and the pod is restarted.
+  ndrAddr: ""
 
   # VXLAN Network Identifier (VNI) as a hex string, e.g. "0x0a0b0c".
   # "0" is fine for single-tenant setups.
@@ -61,7 +64,8 @@ sensor:
   logLevel: "info"
 
   # Prometheus metrics listener. Uses hostNetwork, so reachable at
-  # <node-ip>:9090 by default.
+  # <node-ip>:9090 by default. Only consulted when prometheus.enabled=true;
+  # otherwise the daemonset forces it to "" and the HTTP server is skipped.
   metricsAddr: ":9090"
 
   # Health probe listener — /healthz (liveness) and /readyz (readiness).
@@ -87,12 +91,9 @@ nodeSelector: {}
 
 affinity: {}
 
-# -- Pod annotations. Default exposes Prometheus scrape metadata so vanilla
-# Prometheus (no operator) can discover the metrics endpoint.
-podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/port: "9090"
-  prometheus.io/path: /metrics
+# -- Extra pod annotations. Prometheus scrape hints are rendered automatically
+# when prometheus.enabled=true — don't add them here or they'll duplicate.
+podAnnotations: {}
 
 # -- Extra pod labels merged on top of the chart's standard labels.
 podLabels: {}
@@ -111,10 +112,20 @@ updateStrategy:
   rollingUpdate:
     maxUnavailable: 1
 
-# -- Prometheus Operator integration. Enable `serviceMonitor.enabled` only if
-# prometheus-operator is installed and its Prometheus watches this namespace.
-# Without the operator, the pod annotations above are enough.
+# -- Prometheus integration. Disabled by default — the sensor still emits a
+# 10-s tick log to stdout with pps_in / pps_out / kernel_drops so operators
+# without Prometheus retain basic health visibility. Health probes on :8080
+# are always on (kubelet needs them).
+#
+# Set prometheus.enabled=true to:
+#   - start the /metrics HTTP server on sensor.metricsAddr (default :9090)
+#   - add prometheus.io/scrape pod annotations for vanilla Prometheus
+#   - expose the metrics port on the headless Service
+#
+# serviceMonitor.enabled additionally requires prometheus.enabled=true and
+# prometheus-operator installed in the cluster.
 prometheus:
+  enabled: false
   serviceMonitor:
     enabled: false
     interval: 30s

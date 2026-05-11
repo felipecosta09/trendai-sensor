@@ -24,6 +24,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # VERSION is baked into the binary via -ldflags -X main.version and
+      # surfaces as sensor_info{version=...}. Without this build-arg the
+      # Dockerfile's ARG default ("dev") wins and rolling-upgrade dashboards
+      # see every release as version="dev".
       - name: Build & push multi-arch image
         uses: docker/build-push-action@v6
         with:
@@ -31,6 +35,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/trendai-sensor:${{ github.ref_name }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
 
       - uses: azure/setup-helm@v4
         with:

@@ -6,10 +6,10 @@ metadata:
   labels:
     {{- include "trendai-sensor.labels" . | nindent 4 }}
 data:
-  SENSOR: {{ .Values.sensor.ndrAddr | quote }}
+  SENSOR_NDR_ADDR: {{ .Values.sensor.ndrAddr | quote }}
   VNI: {{ .Values.sensor.vni | quote }}
   NDR_MTU: {{ .Values.sensor.ndrMtu | quote }}
   CAPTURE_MODE: {{ .Values.sensor.captureMode | quote }}
   LOG_LEVEL: {{ .Values.sensor.logLevel | quote }}
-  METRICS_ADDR: {{ .Values.sensor.metricsAddr | quote }}
+  METRICS_ADDR: {{ if .Values.prometheus.enabled }}{{ .Values.sensor.metricsAddr | quote }}{{ else }}""{{ end }}
   HEALTH_ADDR: {{ .Values.sensor.healthAddr | quote }}

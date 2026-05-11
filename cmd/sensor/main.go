@@ -20,6 +20,14 @@ import (
 	"github.com/trendai/sensor/internal/metrics"
 )
 
+// version is populated at build time via
+//
+//	-ldflags "-X main.version=<tag>"
+//
+// and surfaces as sensor_info{version=...}. Left as "dev" when the linker
+// flag is missing so a plain `go build` doesn't explode.
+var version = "dev"
+
 func main() {
 	os.Exit(run())
 }
@@ -31,7 +39,7 @@ func run() int {
 		return 2
 	}
 	setupLogger(cfg.LogLevel)
-	slog.Info("starting", "ndr", cfg.NDRAddr, "vni", cfg.VNI, "mtu", cfg.NDRMTU, "mode", cfg.CaptureMode)
+	slog.Info("starting", "version", version, "ndr", cfg.NDRAddr, "vni", cfg.VNI, "mtu", cfg.NDRMTU, "mode", cfg.CaptureMode)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -40,9 +48,43 @@ func run() int {
 	m := metrics.New(reg)
 	hs := health.New(30 * time.Second)
 
-	// HTTP servers (metrics + health).
-	go serve(ctx, cfg.MetricsAddr, metrics.Handler(reg))
+	// sensor_info always carries version/node so a rolling upgrade is visible
+	// via `group by (version) (sensor_info)`. mode and ndr_configured start
+	// as placeholders; main fills them in before capture starts, parked mode
+	// fills them in before blocking on ctx.
+	node := os.Getenv("NODE_NAME")
+	ndrConfigured := "false"
+	if cfg.NDRAddr != "" {
+		ndrConfigured = "true"
+	}
+
+	// HTTP servers. Metrics listener is opt-in — the chart sets
+	// METRICS_ADDR="" when prometheus.enabled=false so customers without a
+	// Prometheus aren't forced to expose an HTTP endpoint from a privileged
+	// pod. Counters still exist in-process and still feed the 10-s tick log.
+	// Health probes are always on — kubelet needs them for liveness/readiness.
+	if cfg.MetricsAddr != "" {
+		go serve(ctx, cfg.MetricsAddr, metrics.Handler(reg))
+	} else {
+		slog.Info("prometheus disabled — /metrics HTTP server not started")
+	}
 	go serve(ctx, cfg.HealthAddr, hs.Handler())
+
+	// Parked mode: no NDR configured. Pod runs, passes health probes, logs
+	// a reminder, but attaches no BPF programs and opens no capture sockets.
+	// Operators can deploy the chart on-cluster to validate scheduling / RBAC
+	// before an NDR endpoint exists; setting SENSOR_NDR_ADDR and restarting
+	// the pod exits this branch and starts real capture. No capture load on
+	// the node until the NDR is configured.
+	if cfg.NDRAddr == "" {
+		m.Info.WithLabelValues(version, node, "parked", ndrConfigured).Set(1)
+		hs.MarkReady()
+		slog.Warn("ndr not configured — sensor is parked; set SENSOR_NDR_ADDR (helm: sensor.ndrAddr) and redeploy to start capture")
+		go parkedReminder(ctx)
+		<-ctx.Done()
+		slog.Info("parked sensor exiting")
+		return 0
+	}
 
 	// Pick capture mode.
 	mode, err := capture.Pick(cfg.CaptureMode)
@@ -52,6 +94,7 @@ func run() int {
 	}
 	slog.Info("capture mode selected", "mode", mode)
 	m.CaptureMode.WithLabelValues(mode).Set(1)
+	m.Info.WithLabelValues(version, node, mode, ndrConfigured).Set(1)
 
 	// Build capturer.
 	var cap capture.Capturer
@@ -113,6 +156,21 @@ func run() int {
 	}
 	slog.Info("capture channel closed, exiting")
 	return 0
+}
+
+// parkedReminder nudges the operator every 10 s that the sensor is idle
+// waiting for SENSOR_NDR_ADDR. Runs until ctx is cancelled.
+func parkedReminder(ctx context.Context) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			slog.Warn("ndr not configured — sensor is parked; set SENSOR_NDR_ADDR and redeploy")
+		}
+	}
 }
 
 func setupLogger(level string) {

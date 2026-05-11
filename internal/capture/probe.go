@@ -3,17 +3,11 @@
 package capture
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/features"
 )
-
-// ErrUnsupported wraps the reason a requested mode can't be loaded on this
-// kernel. Callers can match via errors.Is to distinguish missing-kernel-feature
-// failures from config-validation errors (e.g. an unknown mode string).
-var ErrUnsupported = errors.New("capture mode unsupported on this kernel")
 
 // ModePreference picks a Capturer. If preferred is "tcbpf" or "afpacket" it is
 // honored when supported; "auto" picks TC-BPF when the kernel has the
@@ -22,7 +16,7 @@ func Pick(preferred string) (string, error) {
 	switch preferred {
 	case "tcbpf":
 		if err := probeTCBPF(); err != nil {
-			return "", fmt.Errorf("%w: tcbpf: %w", ErrUnsupported, err)
+			return "", fmt.Errorf("tcbpf unsupported on this kernel: %w", err)
 		}
 		return "tcbpf", nil
 	case "afpacket":

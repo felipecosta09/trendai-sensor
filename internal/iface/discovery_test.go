@@ -29,6 +29,18 @@ func TestShouldSkip(t *testing.T) {
 		{"weave", true},
 		{"tunl0", true},
 
+		// Modern CNI / kube-proxy helpers that pre-v0.1.7 captured twice.
+		{"azv1a2b3c", true},    // Azure CNI per-pod vNIC
+		{"lxc3def", true},      // Cilium per-pod endpoint
+		{"eni1abc", true},      // AWS VPC CNI routed mode
+		{"kube-ipvs0", true},   // kube-proxy IPVS dummy
+		{"dummy0", true},       // generic dummy / bonding helpers
+
+		// Must not regress physical-NIC naming — they start with "eth"/
+		// "ens"/"enp"/"eno", none of which collide with "eni".
+		{"eth0", false},
+		{"eno1", false},
+
 		// Edge cases: substring match must NOT trigger — HasPrefix only.
 		{"myveth", false},
 		{"test-br-0", false},
