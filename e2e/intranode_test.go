@@ -22,12 +22,15 @@ import (
 )
 
 const (
-	e2eNamespace   = "trendai-e2e"
-	e2eRelease     = "trendai-sensor-e2e"
-	e2eLabelSel    = "app.kubernetes.io/name=trendai-sensor"
-	metricsPort    = "9090"
-	podReadyWait   = 60 * time.Second
-	watcherSettle  = 5 * time.Second
+	e2eNamespace      = "trendai-e2e"
+	e2eRelease        = "trendai-sensor-e2e"
+	e2eLabelSel       = "app.kubernetes.io/name=trendai-sensor"
+	metricsPort       = "9090"
+	podReadyWait      = 60 * time.Second
+	watcherSettle     = 5 * time.Second
+	// workloadNamespace is the namespace where test pods land. Explicit so the
+	// tests are not sensitive to the caller's kubectl context default namespace.
+	workloadNamespace = "default"
 )
 
 // TestIntraNodeCapture verifies that pod-to-pod traffic on the same node
@@ -44,10 +47,10 @@ func TestIntraNodeCapture(t *testing.T) {
 	spawnPod(t, podB, node)
 	waitPodsReady(t, podReadyWait, podA, podB)
 
-	podBIP := mustOutput(t, "kubectl", "get", "pod", podB,
+	podBIP := mustOutput(t, "kubectl", "-n", workloadNamespace, "get", "pod", podB,
 		"-o", "jsonpath={.status.podIP}")
 
-	mustRun(t, "kubectl", "exec", podA, "--", "ping", "-c", "20", podBIP)
+	mustRun(t, "kubectl", "-n", workloadNamespace, "exec", podA, "--", "ping", "-c", "20", podBIP)
 
 	sensor := sensorPodOnNode(t, node)
 	metrics := mustOutput(t, "kubectl", "-n", e2eNamespace, "exec", sensor,
@@ -57,10 +60,22 @@ func TestIntraNodeCapture(t *testing.T) {
 		t.Fatalf("sensor_packets_captured_total not found in metrics output")
 	}
 
-	// At least one intra-node interface (eni*, veth*, etc.) must have a non-zero count.
+	// At least one pod-veth interface (eni*, veth*, azv*, cali*) must have a
+	// non-zero count. eth0 non-zero would not prove intra-node capture works.
+	podVethPrefixes := []string{"eni", "veth", "azv", "cali"}
 	found := false
 	for _, line := range strings.Split(metrics, "\n") {
 		if !strings.HasPrefix(line, "sensor_packets_captured_total") {
+			continue
+		}
+		isPodVeth := false
+		for _, pfx := range podVethPrefixes {
+			if strings.Contains(line, `iface="`+pfx) {
+				isPodVeth = true
+				break
+			}
+		}
+		if !isPodVeth {
 			continue
 		}
 		// Prometheus text format: metric{labels} value. Parse the last field.
@@ -69,7 +84,7 @@ func TestIntraNodeCapture(t *testing.T) {
 			continue
 		}
 		found = true
-		t.Logf("capture counter: %s", line)
+		t.Logf("pod-veth capture counter: %s", line)
 		break
 	}
 	if !found {
@@ -114,7 +129,7 @@ func TestDynamicDetach(t *testing.T) {
 	waitPodsReady(t, podReadyWait, podD)
 	time.Sleep(watcherSettle)
 
-	mustRun(t, "kubectl", "delete", "pod", podD)
+	mustRun(t, "kubectl", "-n", workloadNamespace, "delete", "pod", podD)
 	time.Sleep(watcherSettle)
 
 	sensor := sensorPodOnNode(t, node)
@@ -172,7 +187,7 @@ func spawnPod(t *testing.T, name, node string) {
 	spec := fmt.Sprintf(
 		`{"spec":{"nodeName":%q,"containers":[{"name":%q,"image":"alpine","command":["sleep","3600"]}]}}`,
 		node, name)
-	mustRun(t, "kubectl", "run", name,
+	mustRun(t, "kubectl", "-n", workloadNamespace, "run", name,
 		"--image=alpine",
 		"--restart=Never",
 		"--overrides="+spec)
@@ -180,7 +195,7 @@ func spawnPod(t *testing.T, name, node string) {
 
 func waitPodsReady(t *testing.T, timeout time.Duration, names ...string) {
 	t.Helper()
-	args := append([]string{"wait"}, names...)
+	args := append([]string{"-n", workloadNamespace, "wait"}, names...)
 	args = append(args, "--for=condition=Ready",
 		"--timeout="+timeout.String())
 	mustRun(t, append([]string{"kubectl"}, args...)...)
@@ -188,7 +203,7 @@ func waitPodsReady(t *testing.T, timeout time.Duration, names ...string) {
 
 func deletePods(t *testing.T, names ...string) {
 	t.Helper()
-	args := append([]string{"kubectl", "delete", "pod", "--ignore-not-found"}, names...)
+	args := append([]string{"kubectl", "-n", workloadNamespace, "delete", "pod", "--ignore-not-found"}, names...)
 	_ = exec.Command(args[0], args[1:]...).Run()
 }
 
