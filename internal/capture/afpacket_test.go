@@ -183,11 +183,16 @@ func TestCloseIsIdempotent(t *testing.T) {
 // Start does so the event loop under test exercises the real multiplex path.
 func newTestAFPacket(t *testing.T, sockets map[string]int) *AFPacket {
 	t.Helper()
+	ifaceByFD := make(map[int32]string, len(sockets))
+	for name, fd := range sockets {
+		ifaceByFD[int32(fd)] = name
+	}
 	a := &AFPacket{
-		sockets: sockets,
-		buf:     4096,
-		epollFD: -1,
-		eventFD: -1,
+		sockets:   sockets,
+		ifaceByFD: ifaceByFD,
+		buf:       4096,
+		epollFD:   -1,
+		eventFD:   -1,
 	}
 	efd, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
 	if err != nil {

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-var allKeys = []string{"SENSOR_NDR_ADDR", "VNI", "NDR_MTU", "CAPTURE_MODE", "LOG_LEVEL", "METRICS_ADDR", "HEALTH_ADDR"}
+var allKeys = []string{"SENSOR_NDR_ADDR", "VNI", "NDR_MTU", "CAPTURE_MODE", "CAPTURE_INTRA_NODE", "LOG_LEVEL", "METRICS_ADDR", "HEALTH_ADDR"}
 
 func TestLoadDefaults(t *testing.T) {
 	unsetAll(t)
@@ -130,6 +130,35 @@ func TestLoadLogLevelLowercased(t *testing.T) {
 	}
 	if c.LogLevel != "debug" {
 		t.Errorf("LogLevel = %q, want debug (lowercased)", c.LogLevel)
+	}
+}
+
+func TestLoadCaptureIntraNode(t *testing.T) {
+	cases := []struct {
+		env  string
+		want bool
+	}{
+		{"", false},
+		{"false", false},
+		{"true", true},
+		{"1", true},
+		{"0", false},
+		{"invalid", false}, // silently defaults to false
+	}
+	for _, tc := range cases {
+		t.Run("env="+tc.env, func(t *testing.T) {
+			unsetAll(t)
+			if tc.env != "" {
+				t.Setenv("CAPTURE_INTRA_NODE", tc.env)
+			}
+			c, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if c.CaptureIntraNode != tc.want {
+				t.Errorf("CaptureIntraNode = %v, want %v", c.CaptureIntraNode, tc.want)
+			}
+		})
 	}
 }
 

@@ -10,6 +10,25 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// applyUpdate routes a single netlink event to onAdd or onRemove.
+// RTM_NEWLINK without IFF_UP (veth created but not yet up) is skipped.
+func applyUpdate(upd netlink.LinkUpdate, onAdd func(string), onRemove func(string)) {
+	name := upd.Link.Attrs().Name
+	if !IsPodVeth(name) {
+		return
+	}
+	switch upd.Header.Type {
+	case unix.RTM_NEWLINK:
+		// RTM_NEWLINK fires on create AND on attribute changes (e.g. link
+		// coming up). Only attach once the interface is actually UP.
+		if upd.IfInfomsg.Flags&unix.IFF_UP != 0 {
+			onAdd(name)
+		}
+	case unix.RTM_DELLINK:
+		onRemove(name)
+	}
+}
+
 // Watch subscribes to kernel RTM_NEWLINK / RTM_DELLINK events and calls onAdd
 // or onRemove for every pod-veth interface that appears or disappears.
 //
@@ -50,20 +69,7 @@ func Watch(ctx context.Context, onAdd func(string), onRemove func(string)) error
 			if !ok {
 				return nil
 			}
-			name := upd.Link.Attrs().Name
-			if !IsPodVeth(name) {
-				continue
-			}
-			switch upd.Header.Type {
-			case unix.RTM_NEWLINK:
-				// RTM_NEWLINK fires on create AND on attribute changes (e.g. link
-				// coming up). Only attach once the interface is actually UP.
-				if upd.IfInfomsg.Flags&unix.IFF_UP != 0 {
-					onAdd(name)
-				}
-			case unix.RTM_DELLINK:
-				onRemove(name)
-			}
+			applyUpdate(upd, onAdd, onRemove)
 		}
 	}
 }
