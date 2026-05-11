@@ -39,7 +39,7 @@ func run() int {
 		return 2
 	}
 	setupLogger(cfg.LogLevel)
-	slog.Info("starting", "version", version, "ndr", cfg.NDRAddr, "vni", cfg.VNI, "mtu", cfg.NDRMTU, "mode", cfg.CaptureMode)
+	slog.Info("starting", "version", version, "ndr", cfg.NDRAddr, "vni", cfg.VNI, "mtu", cfg.NDRMTU, "mode", cfg.CaptureMode, "captureIntraNode", cfg.CaptureIntraNode)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -118,12 +118,23 @@ func run() int {
 	defer cap.Close()
 
 	// Interfaces.
-	ifaces, err := iface.List()
-	if err != nil || len(ifaces) == 0 {
-		slog.Error("no capture interfaces", "err", err, "found", ifaces)
-		return 1
+	var ifaces []string
+	if cfg.CaptureIntraNode {
+		ifaces, err = iface.ListPodVeths()
+		if err != nil {
+			slog.Error("list pod veths", "err", err)
+			return 1
+		}
+		// Empty slice is valid — watcher attaches as pods start.
+		slog.Info("intra-node mode: initial pod-veths", "list", ifaces)
+	} else {
+		ifaces, err = iface.List()
+		if err != nil || len(ifaces) == 0 {
+			slog.Error("no capture interfaces", "err", err, "found", ifaces)
+			return 1
+		}
+		slog.Info("interfaces", "list", ifaces)
 	}
-	slog.Info("interfaces", "list", ifaces)
 
 	// Forwarder.
 	fwd, err := forward.New(cfg.NDRAddr, cfg.VNI, cfg.NDRMTU)
@@ -138,6 +149,27 @@ func run() int {
 		slog.Error("capture start", "err", err)
 		return 1
 	}
+
+	if cfg.CaptureIntraNode {
+		go func() {
+			if err := iface.Watch(ctx,
+				func(name string) {
+					if err := cap.Attach(name); err != nil {
+						slog.Warn("pod veth appeared, attach failed", "iface", name, "err", err)
+					} else {
+						slog.Info("pod veth appeared, attaching", "iface", name)
+					}
+				},
+				func(name string) {
+					_ = cap.Detach(name)
+					slog.Info("pod veth removed, detaching", "iface", name)
+				},
+			); err != nil {
+				slog.Error("iface watcher", "err", err)
+			}
+		}()
+	}
+
 	hs.MarkReady()
 
 	go statsReporter(ctx, cap, fwd, m)
