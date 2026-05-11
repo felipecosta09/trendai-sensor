@@ -39,7 +39,9 @@ func TestShutdownUnblocksEventLoop(t *testing.T) {
 
 	out := make(chan Packet, 1)
 	done := make(chan struct{})
+	a.loopWG.Add(1)
 	go func() {
+		defer a.loopWG.Done()
 		a.eventLoop(ctx, out)
 		close(done)
 	}()
@@ -87,7 +89,9 @@ func TestShutdownViaContextCancel(t *testing.T) {
 
 	out := make(chan Packet, 1)
 	done := make(chan struct{})
+	a.loopWG.Add(1)
 	go func() {
+		defer a.loopWG.Done()
 		a.eventLoop(ctx, out)
 		close(done)
 	}()
@@ -126,7 +130,9 @@ func TestEventLoopDrainsPackets(t *testing.T) {
 
 	out := make(chan Packet, 4)
 	done := make(chan struct{})
+	a.loopWG.Add(1)
 	go func() {
+		defer a.loopWG.Done()
 		a.eventLoop(ctx, out)
 		close(done)
 	}()

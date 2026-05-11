@@ -46,6 +46,7 @@ type AFPacket struct {
 	captured    atomic.Uint64
 	kernelDrops atomic.Uint64 // cumulative; PACKET_STATISTICS resets on read so we accumulate here
 	closed      sync.Once
+	loopWG      sync.WaitGroup // incremented before eventLoop spawns, zeroed when it returns
 }
 
 // afpacketReadBuf sized to the classic pcap snaplen so jumbo frames (up to
@@ -126,7 +127,9 @@ func (a *AFPacket) Start(ctx context.Context, ifaces []string) (<-chan Packet, e
 		_ = a.Close()
 	}()
 
+	a.loopWG.Add(1)
 	go func() {
+		defer a.loopWG.Done()
 		defer close(out)
 		a.eventLoop(ctx, out)
 	}()
@@ -246,9 +249,21 @@ func (a *AFPacket) Stats() Stats {
 	}
 }
 
+// Close is idempotent (sync.Once) and blocks until the event loop has
+// observed the shutdown signal and returned. Waiting is required because
+// close(2) on a Linux epoll fd or eventfd does NOT reliably wake a blocked
+// epoll_wait in another thread — if we closed the eventfd between
+// wakeShutdown and the kernel delivering the readable state, the signal
+// would be lost and epoll_wait would block forever. loopWG.Wait() makes
+// the sequence (wakeShutdown → eventLoop exits → closeFDs) explicit.
+//
+// loopWG has a zero counter when Start was never called (e.g. tests
+// exercising closeFDs on a partially-constructed AFPacket), so Wait
+// returns immediately in that case.
 func (a *AFPacket) Close() error {
 	a.closed.Do(func() {
 		a.wakeShutdown()
+		a.loopWG.Wait()
 		a.closeFDs()
 	})
 	return nil
