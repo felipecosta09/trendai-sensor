@@ -9,13 +9,14 @@ import (
 )
 
 type Config struct {
-	NDRAddr     string
-	VNI         uint32
-	NDRMTU      int
-	CaptureMode string
-	LogLevel    string
-	MetricsAddr string
-	HealthAddr  string
+	NDRAddr          string
+	VNI              uint32
+	NDRMTU           int
+	CaptureMode      string
+	CaptureIntraNode bool
+	LogLevel         string
+	MetricsAddr      string
+	HealthAddr       string
 }
 
 func Load() (Config, error) {
@@ -49,6 +50,11 @@ func Load() (Config, error) {
 	default:
 		return c, fmt.Errorf("CAPTURE_MODE %q invalid", c.CaptureMode)
 	}
+
+	if v, err := strconv.ParseBool(getenv("CAPTURE_INTRA_NODE", "false")); err == nil {
+		c.CaptureIntraNode = v
+	}
+
 	return c, nil
 }
 
