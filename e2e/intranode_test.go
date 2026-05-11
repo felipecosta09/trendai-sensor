@@ -128,10 +128,10 @@ func TestDynamicDetach(t *testing.T) {
 	}
 }
 
-// TestDefaultModeRegression confirms the default (captureIntraNode=false)
-// release still captures on eth0 and not on pod-veth interfaces.
-func TestDefaultModeRegression(t *testing.T) {
-	t.Skip("requires a separate helm release with captureIntraNode=false — deploy manually")
+// TestNorthSouthCapture confirms the primary NIC (eth0) capture still works —
+// traffic to an external endpoint should produce non-zero counts on the eth0 interface.
+func TestNorthSouthCapture(t *testing.T) {
+	t.Skip("requires external traffic generation — run manually after generating north-south traffic")
 }
 
 // TestGracefulShutdown confirms the sensor pod terminates within the grace

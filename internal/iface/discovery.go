@@ -60,13 +60,12 @@ func shouldSkip(name string) bool {
 	return false
 }
 
-// podVethPrefixes are the host-side veth interface name prefixes used by the
-// CNIs supported in captureIntraNode mode. Cilium (lxc*) is intentionally
+// podVethPrefixes are the host-side veth interface name prefixes for the CNIs
+// that support kernel-level veth capture. Cilium (lxc*) is intentionally
 // absent — its eBPF datapath may redirect packets before veth traversal.
 var podVethPrefixes = []string{"veth", "eni", "azv", "cali"}
 
-// IsPodVeth reports whether name is a CNI pod-veth interface supported by
-// intra-node capture.
+// IsPodVeth reports whether name is a CNI pod-veth interface.
 func IsPodVeth(name string) bool {
 	for _, p := range podVethPrefixes {
 		if strings.HasPrefix(name, p) {
@@ -77,8 +76,8 @@ func IsPodVeth(name string) bool {
 }
 
 // ListPodVeths returns the names of all UP interfaces whose names match a
-// pod-veth prefix. Called once at startup when captureIntraNode is true;
-// the watcher handles subsequent additions.
+// pod-veth prefix. Called at startup for the initial set; the watcher handles
+// subsequent additions.
 func ListPodVeths() ([]string, error) {
 	all, err := net.Interfaces()
 	if err != nil {
