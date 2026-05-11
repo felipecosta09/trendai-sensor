@@ -23,6 +23,8 @@ func NewAFPacket(_ filterpkg.Spec) Capturer { return &stub{mode: "afpacket-stub"
 func (s *stub) Start(context.Context, []string) (<-chan Packet, error) {
 	return nil, errors.New("linux only")
 }
-func (s *stub) Stats() Stats { return Stats{} }
-func (s *stub) Close() error { return nil }
-func (s *stub) Mode() string { return s.mode }
+func (s *stub) Attach(_ string) error { return errors.New("linux only") }
+func (s *stub) Detach(_ string) error { return errors.New("linux only") }
+func (s *stub) Stats() Stats          { return Stats{} }
+func (s *stub) Close() error          { return nil }
+func (s *stub) Mode() string          { return s.mode }

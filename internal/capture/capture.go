@@ -44,7 +44,14 @@ type Stats struct {
 type Capturer interface {
 	// Start attaches to all provided interfaces and begins delivering packets
 	// on the returned channel. The channel closes when ctx is cancelled.
+	// An empty ifaces slice is allowed; call Attach to add interfaces later.
 	Start(ctx context.Context, ifaces []string) (<-chan Packet, error)
+	// Attach dynamically adds capture on a single interface after Start.
+	// Safe to call from a goroutine concurrent with the event loop. No-op if
+	// the interface is already attached.
+	Attach(iface string) error
+	// Detach removes capture from a single interface. No-op if not attached.
+	Detach(iface string) error
 	// Stats returns a snapshot of kernel/filter drop counters.
 	Stats() Stats
 	// Close detaches from all interfaces and releases resources.
