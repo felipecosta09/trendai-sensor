@@ -1,0 +1,5 @@
+sensor:
+  ndrAddr: ""            # parked — validate capture via metrics, not NDR forwarding
+  captureIntraNode: true
+prometheus:
+  enabled: true          # metric assertions read /metrics

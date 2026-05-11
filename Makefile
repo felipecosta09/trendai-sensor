@@ -16,7 +16,8 @@ VERSION      ?= dev
 .PHONY: all bpf build test lint clean \
         docker docker-buildx docker-push \
         fmt vet golangci-lint \
-        helm-lint helm-template helm-package
+        helm-lint helm-template helm-package \
+        e2e
 
 all: bpf build
 
@@ -85,6 +86,16 @@ helm-template:
 # .helmignore keeps the Go source + build artifacts out of the tarball.
 helm-package:
 	helm package $(CHART_DIR)
+
+# In-cluster intra-node capture validation. Requires an EKS cluster with the
+# e2e release deployed (see e2e/values-e2e.yaml) and kubectl context set.
+# Deploy before running:
+#   helm upgrade --install $(e2eRelease) . \
+#     --values e2e/values-e2e.yaml \
+#     --namespace trendai-e2e --create-namespace
+#   kubectl -n trendai-e2e rollout status daemonset/$(e2eRelease) --timeout=120s
+e2e:
+	go test -v -tags e2e -timeout 5m ./e2e/...
 
 clean:
 	rm -rf bin/ \
