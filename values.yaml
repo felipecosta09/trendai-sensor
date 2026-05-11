@@ -60,6 +60,14 @@ sensor:
   # otherwise AF_PACKET + cBPF. Force with "tcbpf" or "afpacket".
   captureMode: "auto"
 
+  # When true, the sensor captures pod-to-pod traffic on the same node by
+  # attaching to CNI pod-veth interfaces instead of the primary NIC (eth0).
+  # A netlink watcher dynamically attaches/detaches as pods start and stop.
+  # Supported CNIs: aws-vpc-cni (eni*), Azure CNI (azv*), kubenet/generic
+  # veth, Calico non-eBPF (cali*). Cilium is not supported.
+  # Default false — normal per-node NIC capture is unchanged.
+  captureIntraNode: false
+
   # Log verbosity: debug, info, warn, error. Structured JSON via slog.
   logLevel: "info"
 

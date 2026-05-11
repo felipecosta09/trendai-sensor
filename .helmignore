@@ -27,6 +27,7 @@ go.work.sum
 Dockerfile
 Makefile
 *.go
+sensor
 
 # Docs / misc (not part of the packaged chart)
 README.md
