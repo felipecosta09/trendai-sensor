@@ -232,8 +232,10 @@ func serve(ctx context.Context, addr string, h http.Handler) {
 // counters are themselves cumulative, so we must Add only the delta each
 // tick — Adding the running total every 10 s inflates the counter
 // exponentially.
+const statsIntervalSec = 10
+
 func statsReporter(ctx context.Context, cap capture.Capturer, fwd *forward.Forwarder, m *metrics.Metrics) {
-	t := time.NewTicker(10 * time.Second)
+	t := time.NewTicker(statsIntervalSec * time.Second)
 	defer t.Stop()
 	var (
 		prevCaptured, prevSent, prevBytes     uint64
@@ -265,9 +267,9 @@ func statsReporter(ctx context.Context, cap capture.Capturer, fwd *forward.Forwa
 			prevCaptured, prevSent, prevBytes = cs.CapturedPackets, fs.Sent, fs.BytesOut
 
 			slog.Info("tick",
-				"pps_in", capDelta/10,
-				"pps_out", sentDelta/10,
-				"mbps_out", (bytesDelta*8)/1_000_000/10,
+				"pps_in", capDelta/statsIntervalSec,
+				"pps_out", sentDelta/statsIntervalSec,
+				"mbps_out", (bytesDelta*8)/1_000_000/statsIntervalSec,
 				"kernel_drops", cs.KernelDrops,
 				"mtu_exceeded", fs.MTUExceeded,
 				"send_errors", fs.SendErrors,
