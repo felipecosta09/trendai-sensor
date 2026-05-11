@@ -91,7 +91,7 @@ helm install \
   --values overrides.yaml \
   --namespace trendai-sensor --create-namespace \
   trendai-sensor \
-  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.7/trendai-sensor-0.1.7.tgz
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.8/trendai-sensor-0.1.8.tgz
 ```
 
 The packaged tgz is smaller than the source archive and is the canonical
@@ -103,7 +103,7 @@ Without Helm — render the chart and pipe to `kubectl`:
 
 ```
 helm template trendai-sensor \
-  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.7/trendai-sensor-0.1.7.tgz \
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.8/trendai-sensor-0.1.8.tgz \
   --values overrides.yaml \
   --namespace trendai-sensor | kubectl apply -f -
 ```

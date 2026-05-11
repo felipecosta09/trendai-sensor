@@ -1,3 +1,29 @@
+## v0.1.8 — 2026-05-11
+
+### Fixed
+
+- **AF_PACKET shutdown, for real this time.** The v0.1.7 fix relied on
+  `close(fd)` waking a concurrently-blocked `unix.Read`, which Linux does
+  not guarantee (see the "Multithreaded processes and close()" note in
+  `close(2)`). In-cluster verification against v0.1.7 showed AF_PACKET
+  pods hung until SIGKILL at `terminationGracePeriodSeconds` — the exact
+  symptom v0.1.7 claimed to fix. Rewrote the capture path to use
+  non-blocking sockets multiplexed through `epoll_wait`, with shutdown
+  signalled by a write to an `eventfd`. `epoll_wait` is interruptible by
+  the eventfd becoming readable, so `Close` now has deterministic sub-200 ms
+  wake-up regardless of whether a socket is currently readable. The prior
+  unit test closed the fd *before* the read started — it validated the
+  EBADF branch but not the actual failure mode in production; replaced with
+  socketpair-based tests that exercise shutdown with the reader already in
+  `epoll_wait`.
+
+### Docs
+
+- README install URLs bumped from `v0.1.7` → `v0.1.8`. CHANGELOG walks back
+  the "AF_PACKET parity with TC-BPF" claim from the v0.1.7 entry.
+
+---
+
 ## v0.1.7 — 2026-05-08
 
 ### Breaking
