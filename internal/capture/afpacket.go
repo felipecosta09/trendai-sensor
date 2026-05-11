@@ -138,15 +138,13 @@ func (a *AFPacket) Start(ctx context.Context, ifaces []string) (<-chan Packet, e
 // is poked by Close. Single goroutine — epoll multiplexes readiness across
 // all interfaces, no per-iface reader goroutine needed.
 //
-// epollFD and eventFD are captured into locals at entry: Close mutates the
-// struct fields to -1 under sync.Once, so reading them from the event loop
-// would race even though the sequence (wake → return → closeFDs closes fds)
-// is logically ordered. Closing an fd that this goroutine still references
-// is safe — the kernel's fd → file mapping is independent of the integer
+// a.epollFD / a.eventFD are set exactly once in Start before this goroutine
+// is spawned and are never written again. closeFDs closes the fds but does
+// not mutate the fields, so concurrent reads here are race-free without
+// additional synchronization. Closing an fd the goroutine still references
+// is safe — the kernel's fd→file mapping is independent of the integer
 // value we hold, and a stale integer at worst yields EBADF which we handle.
 func (a *AFPacket) eventLoop(ctx context.Context, out chan<- Packet) {
-	epollFD := a.epollFD
-	eventFD := int32(a.eventFD)
 	events := make([]unix.EpollEvent, 1+len(a.sockets))
 	buf := make([]byte, a.buf)
 	ifaceByFD := make(map[int32]string, len(a.sockets))
@@ -154,7 +152,7 @@ func (a *AFPacket) eventLoop(ctx context.Context, out chan<- Packet) {
 		ifaceByFD[int32(fd)] = name
 	}
 	for {
-		n, err := unix.EpollWait(epollFD, events, -1)
+		n, err := unix.EpollWait(a.epollFD, events, -1)
 		if err != nil {
 			if errors.Is(err, unix.EINTR) {
 				continue
@@ -169,7 +167,7 @@ func (a *AFPacket) eventLoop(ctx context.Context, out chan<- Packet) {
 		}
 		for i := 0; i < n; i++ {
 			ev := events[i]
-			if ev.Fd == eventFD {
+			if ev.Fd == int32(a.eventFD) {
 				return
 			}
 			name := ifaceByFD[ev.Fd]
@@ -259,17 +257,22 @@ func (a *AFPacket) Close() error {
 // closeFDs releases all owned fds. Safe to invoke on a partially-constructed
 // AFPacket (fields default to -1); Close is the public entry, this is the
 // internal cleanup shared with Start's error paths.
+//
+// Deliberately does NOT write -1 back into the struct fields after closing:
+// eventLoop reads a.epollFD / a.eventFD without synchronization, relying on
+// the invariant that those fields are set exactly once in Start before the
+// goroutine is spawned and never written afterwards. sync.Once on Close
+// guarantees closeFDs runs at most once post-Start, so there is no
+// double-close hazard that the -1 sentinel would guard against.
 func (a *AFPacket) closeFDs() {
 	for _, fd := range a.sockets {
 		_ = unix.Close(fd)
 	}
 	if a.epollFD >= 0 {
 		_ = unix.Close(a.epollFD)
-		a.epollFD = -1
 	}
 	if a.eventFD >= 0 {
 		_ = unix.Close(a.eventFD)
-		a.eventFD = -1
 	}
 }
 
