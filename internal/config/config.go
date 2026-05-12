@@ -28,9 +28,15 @@ func Load() (Config, error) {
 	}
 
 	vniStr := getenv("VNI", "0")
-	vni, err := strconv.ParseUint(strings.TrimPrefix(vniStr, "0x"), 16, 32)
+	var vni uint64
+	var err error
+	if lower := strings.ToLower(vniStr); strings.HasPrefix(lower, "0x") {
+		vni, err = strconv.ParseUint(lower[2:], 16, 32)
+	} else {
+		vni, err = strconv.ParseUint(vniStr, 10, 32)
+	}
 	if err != nil {
-		return c, fmt.Errorf("VNI %q not hex: %w", vniStr, err)
+		return c, fmt.Errorf("VNI %q: must be decimal or 0x-prefixed hex: %w", vniStr, err)
 	}
 	if vni&0xff000000 != 0 {
 		return c, fmt.Errorf("VNI %#x exceeds 24 bits", vni)

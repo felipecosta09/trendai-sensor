@@ -36,13 +36,17 @@ func TestLoadVNI(t *testing.T) {
 		wantErr string
 	}{
 		{"zero", "0", 0, ""},
-		{"small hex", "1a", 0x1a, ""},
+		{"decimal", "256", 256, ""},
 		{"0x prefix", "0x1a", 0x1a, ""},
+		{"0X uppercase prefix", "0X1a", 0x1a, ""},
 		{"0x uppercase digits", "0xABCDEF", 0xabcdef, ""},
-		{"max 24-bit", "ffffff", 0xffffff, ""},
-		{"overflow 24-bit", "1000000", 0, "exceeds 24 bits"},
-		{"not hex", "gg", 0, "not hex"},
-		{"overflow uint32", "100000000", 0, "not hex"},
+		{"0x max 24-bit", "0xffffff", 0xffffff, ""},
+		{"decimal max 24-bit", "16777215", 16777215, ""},
+		{"overflow 24-bit hex", "0x1000000", 0, "exceeds 24 bits"},
+		{"overflow 24-bit decimal", "16777216", 0, "exceeds 24 bits"},
+		{"bare hex no 0x prefix", "1a", 0, "decimal or 0x"},
+		{"invalid chars", "gg", 0, "decimal or 0x"},
+		{"overflow decimal", "100000000", 0, "exceeds 24 bits"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

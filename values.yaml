@@ -31,8 +31,8 @@ sensor:
   # address is set and the pod is restarted.
   ndrAddr: ""
 
-  # VXLAN Network Identifier (VNI) as a hex string, e.g. "0x0a0b0c".
-  # "0" is fine for single-tenant setups.
+  # VXLAN Network Identifier (VNI). Accepts plain decimal ("100") or
+  # 0x-prefixed hex ("0x0a0b0c"). "0" is fine for single-tenant setups.
   vni: "0"
 
   # MTU of the NDR link in bytes. The sensor drops any frame whose inner
