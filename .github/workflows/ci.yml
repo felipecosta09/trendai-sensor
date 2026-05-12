@@ -1,7 +1,6 @@
 name: CI
 
-# Runs on every PR — gates merge to main.
-# Post-merge checks + auto-release live in main.yml.
+# PR gate — must pass before merge to main.
 on:
   pull_request:
 
