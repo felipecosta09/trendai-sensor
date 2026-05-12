@@ -50,6 +50,7 @@ type AFPacket struct {
 
 	captured    atomic.Uint64
 	kernelDrops atomic.Uint64 // cumulative; PACKET_STATISTICS resets on read so we accumulate here
+	isClosed    atomic.Bool   // set in closeFDs; checked in Attach to prevent post-close fd reuse
 	closed      sync.Once
 	loopWG      sync.WaitGroup // incremented before eventLoop spawns, zeroed when it returns
 }
@@ -299,6 +300,13 @@ func (a *AFPacket) Attach(iface string) error {
 		return fmt.Errorf("epoll_ctl attach %s: %w", iface, err)
 	}
 	a.socketsMu.Lock()
+	if a.isClosed.Load() {
+		// Close() raced ahead of us after EpollCtl — clean up and bail.
+		a.socketsMu.Unlock()
+		_ = unix.EpollCtl(a.epollFD, unix.EPOLL_CTL_DEL, fd, nil)
+		_ = unix.Close(fd)
+		return nil
+	}
 	a.sockets[iface] = fd
 	a.ifaceByFD[int32(fd)] = iface
 	a.socketsMu.Unlock()
@@ -352,6 +360,10 @@ func (a *AFPacket) Close() error {
 // double-close hazard that the -1 sentinel would guard against.
 func (a *AFPacket) closeFDs() {
 	a.socketsMu.Lock()
+	// Mark closed before clearing maps so any Attach that re-checks under
+	// the write lock after this point sees isClosed=true and bails out,
+	// preventing use of the about-to-be-closed epollFD integer.
+	a.isClosed.Store(true)
 	for _, fd := range a.sockets {
 		_ = unix.Close(fd)
 	}
