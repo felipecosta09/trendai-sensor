@@ -144,20 +144,33 @@ func run() int {
 	}
 
 	go func() {
-		if err := iface.Watch(ctx,
-			func(name string) {
-				if err := cap.Attach(name); err != nil {
-					slog.Warn("pod veth appeared, attach failed", "iface", name, "err", err)
-				} else {
-					slog.Info("pod veth appeared, attaching", "iface", name)
-				}
-			},
-			func(name string) {
-				_ = cap.Detach(name)
-				slog.Info("pod veth removed, detaching", "iface", name)
-			},
-		); err != nil {
-			slog.Error("iface watcher", "err", err)
+		backoff := time.Second
+		for {
+			err := iface.Watch(ctx,
+				func(name string) {
+					if err := cap.Attach(name); err != nil {
+						slog.Warn("pod veth appeared, attach failed", "iface", name, "err", err)
+					} else {
+						slog.Info("pod veth appeared, attaching", "iface", name)
+					}
+				},
+				func(name string) {
+					_ = cap.Detach(name)
+					slog.Info("pod veth removed, detaching", "iface", name)
+				},
+			)
+			if err == nil {
+				return // clean context cancellation
+			}
+			slog.Error("iface watcher exited unexpectedly, restarting", "err", err, "backoff", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			if backoff < 30*time.Second {
+				backoff *= 2
+			}
 		}
 	}()
 

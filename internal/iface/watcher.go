@@ -4,6 +4,7 @@ package iface
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/vishvananda/netlink"
@@ -36,7 +37,8 @@ func applyUpdate(upd netlink.LinkUpdate, onAdd func(string), onRemove func(strin
 // each interface already present, closing the race window between the initial
 // snapshot in main and the subscription start.
 //
-// Watch blocks until ctx is cancelled, then returns nil.
+// Watch blocks until ctx is cancelled (returns nil) or the netlink
+// subscription channel closes unexpectedly (returns a non-nil error).
 func Watch(ctx context.Context, onAdd func(string), onRemove func(string)) error {
 	ch := make(chan netlink.LinkUpdate, 32)
 	done := make(chan struct{})
@@ -67,7 +69,7 @@ func Watch(ctx context.Context, onAdd func(string), onRemove func(string)) error
 			return nil
 		case upd, ok := <-ch:
 			if !ok {
-				return nil
+				return errors.New("netlink subscription channel closed unexpectedly")
 			}
 			applyUpdate(upd, onAdd, onRemove)
 		}
