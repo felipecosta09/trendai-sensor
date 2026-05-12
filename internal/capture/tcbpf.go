@@ -153,6 +153,14 @@ func (t *TCBPF) attach(l *net.Interface) error {
 		return fmt.Errorf("attach egress: %w", err)
 	}
 	t.linksMu.Lock()
+	if _, exists := t.links[l.Index]; exists {
+		// A concurrent caller attached while BPF setup was in progress.
+		// Discard the redundant links and return idempotently.
+		t.linksMu.Unlock()
+		_ = ingress.Close()
+		_ = egress.Close()
+		return nil
+	}
 	t.links[l.Index] = []link.Link{ingress, egress}
 	t.ifaces[l.Index] = l.Name
 	t.linksMu.Unlock()
