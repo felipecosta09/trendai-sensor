@@ -1,69 +1,124 @@
 name: Release
 
-# Triggered by the auto-tag job in main.yml (or a manual git push tag).
+# Runs after every merge to main.
+# Job 1 (test): validates the merged commit.
+# Job 2 (release): if tests pass and no GitHub release exists for the
+#   current Chart.yaml appVersion, builds the image, packages the Helm
+#   chart, and publishes the release — all in one run.
+#
+# Everything happens in a single workflow so GITHUB_TOKEN can create the
+# release without needing to trigger a second workflow via a tag push
+# (GITHUB_TOKEN pushes cannot trigger other workflows by design).
 on:
   push:
-    tags: ['v*']
-
-permissions:
-  contents: write
-  packages: write
+    branches: [main]
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
-  release:
+  test:
+    name: test (race)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install BPF toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm libbpf-dev linux-libc-dev
+
+      - name: Generate BPF bindings
+        run: cd internal/capture && go generate ./...
+
+      - name: go test -race
+        run: go test -race ./...
+
+  release:
+    name: release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from Chart.yaml
+        id: version
+        run: |
+          VERSION=$(grep '^appVersion:' Chart.yaml \
+            | sed 's/appVersion:[[:space:]]*//' | tr -d '"')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Detected version: ${VERSION}"
+
+      - name: Check if release already exists
+        id: release_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.version }}" \
+               --json tagName -q .tagName > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${{ steps.version.outputs.version }} already published — skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No release for ${{ steps.version.outputs.version }} — will publish."
+          fi
+
       - uses: docker/setup-qemu-action@v4
+        if: steps.release_check.outputs.exists == 'false'
 
       - uses: docker/setup-buildx-action@v4
+        if: steps.release_check.outputs.exists == 'false'
 
       - uses: docker/login-action@v4
+        if: steps.release_check.outputs.exists == 'false'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # VERSION is baked into the binary via -ldflags -X main.version and
-      # surfaces as sensor_info{version=...}. Without this build-arg the
-      # Dockerfile's ARG default ("dev") wins and rolling-upgrade dashboards
-      # see every release as version="dev".
       - name: Build & push multi-arch image
+        if: steps.release_check.outputs.exists == 'false'
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/trendai-sensor:${{ github.ref_name }}
+          tags: ghcr.io/${{ github.repository_owner }}/trendai-sensor:${{ steps.version.outputs.version }}
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.version.outputs.version }}
 
       - uses: azure/setup-helm@v5
+        if: steps.release_check.outputs.exists == 'false'
         with:
           version: v3.15.0
 
-      # Chart version is SemVer (no v-prefix); appVersion carries the v-prefix
-      # so templates/_helpers.tpl's `.Chart.AppVersion` fallback resolves to
-      # the same tag that build-push-action just pushed to GHCR.
-      - name: Package chart
+      - name: Package Helm chart
+        if: steps.release_check.outputs.exists == 'false'
         id: package
         run: |
-          CHART_VERSION="${GITHUB_REF_NAME#v}"
+          CHART_VERSION="${{ steps.version.outputs.version }}"
+          CHART_VERSION="${CHART_VERSION#v}"
           helm package . \
             --version "${CHART_VERSION}" \
-            --app-version "${GITHUB_REF_NAME}"
+            --app-version "${{ steps.version.outputs.version }}"
           echo "tgz=trendai-sensor-${CHART_VERSION}.tgz" >> "$GITHUB_OUTPUT"
 
-      # --generate-notes uses .github/release.yml for categorization.
-      - name: Create GitHub release with chart asset
+      - name: Publish GitHub release
+        if: steps.release_check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
+          gh release create "${{ steps.version.outputs.version }}" \
             --generate-notes \
-            --title "${GITHUB_REF_NAME}" \
+            --title "${{ steps.version.outputs.version }}" \
             "${{ steps.package.outputs.tgz }}"
