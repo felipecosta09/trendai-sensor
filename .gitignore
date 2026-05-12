@@ -1,9 +1,12 @@
 /bin/
 *.o
+*_bpf.go
+*_bpf.o
 *_bpfel.go
 *_bpfel.o
 *_bpfeb.go
 *_bpfeb.o
+/sensor
 vendor/
 .idea/
 .vscode/
