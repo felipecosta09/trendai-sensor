@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vishvananda/netlink"
+	nl "github.com/vishvananda/netlink/nl"
 	"golang.org/x/sys/unix"
 )
 
@@ -64,7 +65,7 @@ func TestApplyUpdate(t *testing.T) {
 			var added, removed string
 			upd := netlink.LinkUpdate{
 				Header:    unix.NlMsghdr{Type: tc.msgType},
-				IfInfomsg: unix.IfInfomsg{Flags: tc.flags},
+				IfInfomsg: nl.IfInfomsg{IfInfomsg: unix.IfInfomsg{Flags: tc.flags}},
 				Link:      &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: tc.ifname}},
 			}
 			applyUpdate(upd, func(n string) { added = n }, func(n string) { removed = n })
