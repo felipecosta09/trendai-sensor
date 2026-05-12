@@ -1,180 +1,225 @@
 # TrendAI Sensor
 
-Kubernetes node-level network sensor. Captures traffic via TC-BPF (eBPF) with
-an AF_PACKET fallback, filters noise in the kernel, and forwards relevant
-packets to the TrendAI NDR appliance over VXLAN.
+A Kubernetes DaemonSet that captures network traffic on every node, filters
+out noise in-kernel, and forwards relevant packets to the TrendAI NDR
+appliance over VXLAN. One pod per node; no sidecar required.
 
-## Features
+## Requirements
 
-- **In-kernel filtering.** TC-BPF on clsact ingress + egress, or a cBPF
-  program attached to an AF_PACKET socket — DNS, metadata-service, and the
-  sensor's own VXLAN traffic are dropped before userspace sees them.
-- **Zero-copy delivery on the TC-BPF path** via a 4 MiB BPF ring buffer. The
-  AF_PACKET fallback uses blocking `read(2)` — correct but not zero-copy; it
-  exists to keep the sensor working on kernels that pre-date `clsact`/ringbuf.
-- **Optional Prometheus metrics** (`prometheus.enabled`, default off)
-  including kernel drop counters, per-reason filter drops, MTU-exceeded
-  counters, send errors, and a `sensor_info{version,node,mode,ndr_configured}`
-  gauge for rolling-upgrade and misconfig alerting. With Prometheus off,
-  the same numbers surface as 10-s `tick` lines in stdout.
-- **`/healthz` + `/readyz`** for kubelet liveness/readiness probes.
-- **No `privileged: true`** — runs with `NET_RAW NET_ADMIN BPF PERFMON`,
-  `readOnlyRootFilesystem: true`, and `allowPrivilegeEscalation: false`.
-- **Structured JSON logs** (slog), with per-10 s aggregate tick lines.
-- **MTU-aware forwarding.** Frames whose inner + VXLAN overhead would exceed
-  the NDR link MTU are dropped and counted.
+- Kubernetes 1.25+
+- Helm 3
+- TrendAI NDR appliance reachable from the nodes (or deploy in parked mode first)
+- Linux kernel ≥ 4.15 (TC-BPF fast path requires ≥ 5.8)
 
 ## Kernel matrix
 
-| Kernel | Path |
-|---|---|
-| ≥ 5.8 with ringbuf + clsact | TC-BPF (primary) |
-| 4.15 – 5.7 | AF_PACKET + cBPF fallback |
-| < 4.15 | Unsupported |
+| Kernel | Capture path |
+|--------|-------------|
+| ≥ 5.8 with clsact + ringbuf | TC-BPF (default) |
+| 4.15 – 5.7 | AF\_PACKET + cBPF fallback |
+| < 4.15 | Not supported |
 
-Auto-detected at startup; override with `CAPTURE_MODE=tcbpf` or `afpacket`.
-
-## Configuration
-
-| Env | Default | Description |
-|---|---|---|
-| `SENSOR_NDR_ADDR` | _(empty)_ | NDR appliance IP. Empty = parked mode (see below). |
-| `VNI` | `0` | VXLAN VNI (hex) |
-| `NDR_MTU` | `1500` | NDR link MTU; inner max = NDR_MTU − 50 |
-| `CAPTURE_MODE` | `auto` | `auto`, `tcbpf`, or `afpacket` |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
-| `METRICS_ADDR` | `:9090` | Prometheus exposition (only when `prometheus.enabled=true`) |
-| `HEALTH_ADDR` | `:8080` | Health probes |
-
-> **Breaking in v0.1.7:** `SENSOR` was renamed to `SENSOR_NDR_ADDR` and the
-> placeholder default `10.0.0.1` was removed. Unset = parked mode, not
-> "forward to 10.0.0.1."
-
-In Kubernetes these are rendered from the `sensor.*` keys in
-[values.yaml](values.yaml) into a ConfigMap mounted via `envFrom`; locally
-copy `.env.example` to `.env`.
-
-## Build
-
-```
-make bpf       # compile BPF program via bpf2go (requires clang + llvm + libbpf-dev)
-make build     # static Linux binary
-make docker    # distroless image (~20 MB)
-make test      # unit tests
-make lint      # go vet + golangci-lint
-```
+Auto-selected at startup. Override with `sensor.captureMode`.
 
 ## Install
 
-The chart lives at the repo root and is shipped on every tagged release.
-Images are published to GHCR.
-
-Drop your cluster-specific settings into `overrides.yaml` — you only need to
-list the values you're changing, everything else falls back to the chart
-defaults in [values.yaml](values.yaml):
+Create an `overrides.yaml` with your cluster-specific settings:
 
 ```yaml
 # overrides.yaml
 sensor:
-  ndrAddr: 10.0.0.5          # leave empty to deploy in parked mode
-  vni: "0x0a0b0c"
+  ndrAddr: 10.0.0.5     # NDR appliance IP; leave empty for parked mode
+  vni: "0x0a0b0c"       # VXLAN VNI — "0" is fine for single-tenant
 prometheus:
-  enabled: true              # expose /metrics + add scrape annotations
-  serviceMonitor:
-    enabled: true            # additionally requires prometheus-operator
+  enabled: true         # expose /metrics and add scrape annotations
 ```
 
-Then install from the packaged chart attached to the GitHub release:
+Then install from the release tarball:
 
-```
+```bash
 helm install \
   --values overrides.yaml \
   --namespace trendai-sensor --create-namespace \
   trendai-sensor \
-  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.8/trendai-sensor-0.1.8.tgz
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.9/trendai-sensor-0.1.9.tgz
 ```
 
-The packaged tgz is smaller than the source archive and is the canonical
-install artifact — every tagged release uploads it automatically. Check
-[the releases page](https://github.com/felipecosta09/trendai-sensor/releases/latest)
-for the current tag.
+Without Helm:
 
-Without Helm — render the chart and pipe to `kubectl`:
-
-```
+```bash
 helm template trendai-sensor \
-  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.8/trendai-sensor-0.1.8.tgz \
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.9/trendai-sensor-0.1.9.tgz \
   --values overrides.yaml \
   --namespace trendai-sensor | kubectl apply -f -
 ```
 
-## Observability
+## Upgrade
 
-The sensor ships with Prometheus exposition **off by default** — many
-environments don't run Prometheus, and a root-privileged pod exposing an
-HTTP endpoint nobody scrapes is unnecessary attack surface.
+```bash
+helm upgrade trendai-sensor \
+  --values overrides.yaml \
+  --namespace trendai-sensor \
+  https://github.com/felipecosta09/trendai-sensor/releases/download/v0.1.9/trendai-sensor-0.1.9.tgz
+```
 
-**Stdout only** (default — `prometheus.enabled=false`):
+The DaemonSet uses `RollingUpdate` with `maxUnavailable: 1`, so one node
+at a time is updated. Capture is interrupted only on the node being
+upgraded.
 
-- No `/metrics` HTTP server.
-- No `prometheus.io/scrape` pod annotations, no metrics port on the Service.
-- Health probes (`:8080`) still on.
-- Every 10 s the sensor logs a `tick` line with `pps_in`, `pps_out`,
-  `mbps_out`, `kernel_drops`, `mtu_exceeded`, `send_errors`. Enough for
-  `kubectl logs` to spot regressions.
+## Uninstall
 
-**Prometheus enabled** (`prometheus.enabled=true`):
+```bash
+helm uninstall trendai-sensor --namespace trendai-sensor
+```
 
-- `/metrics` on `<node-ip>:9090` (hostNetwork). Scrape annotations are
-  rendered automatically. Without prometheus-operator this is all you need.
-- With prometheus-operator, additionally set `prometheus.serviceMonitor.enabled=true`.
-- Useful alerts:
-  - `max(sensor_info{ndr_configured="false"}) == 1` — a pod deployed
-    without `sensor.ndrAddr` (see parked mode below).
-  - `rate(sensor_packets_dropped_kernel_total[5m]) > 0` — ring buffer
-    full; sensor is CPU- or bandwidth-bound.
-  - `count(group by (version) (sensor_info)) > 1` for > 10 min — rolling
-    upgrade got stuck.
+BPF programs are detached and AF\_PACKET sockets are closed automatically
+when the pod exits. No kernel-level cleanup is required after uninstall.
+
+## Configuration
+
+All `sensor.*` values become environment variables on the container via a
+ConfigMap. Set them in your `overrides.yaml`.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `sensor.ndrAddr` | _(empty)_ | NDR appliance IP. Empty = parked mode (see below). |
+| `sensor.vni` | `"0"` | VXLAN Network Identifier (hex string). |
+| `sensor.ndrMtu` | `1500` | MTU of the link to the NDR appliance. Frames whose inner payload + 50 B VXLAN overhead would exceed this are dropped and counted. |
+| `sensor.captureMode` | `"auto"` | Capture backend: `auto`, `tcbpf`, or `afpacket`. |
+| `sensor.logLevel` | `"info"` | Log verbosity: `debug`, `info`, `warn`, `error`. |
+| `sensor.metricsAddr` | `":9090"` | Prometheus endpoint (only active when `prometheus.enabled=true`). |
+| `sensor.healthAddr` | `":8080"` | Liveness (`/healthz`) and readiness (`/readyz`) probes. |
+
+### MTU recommendations by cloud
+
+| Cloud | Recommended `sensor.ndrMtu` |
+|-------|-----------------------------|
+| AWS (EKS, jumbo enabled) | `9001` |
+| AWS (standard) | `1500` |
+| Azure (AKS) | `1500` |
+| GCP (GKE, default VPC) | `1460` |
+| On-prem with jumbo path | `9000` |
 
 ## Parked mode
 
-Deploying the chart without an NDR endpoint is a first-class configuration
-rather than an error. Leave `sensor.ndrAddr` empty (or unset
-`SENSOR_NDR_ADDR`) and the sensor:
+Deploying without `sensor.ndrAddr` is a valid configuration. In parked
+mode the sensor:
 
-- passes `/healthz` + `/readyz`,
-- emits `sensor_info{ndr_configured="false"}` (when Prometheus is on),
-- logs a startup warn + a reminder every 10 s,
-- **does not attach any BPF programs, open any AF_PACKET sockets, or read
-  any packets.** Idle pod — essentially the Go runtime only.
+- passes `/healthz` and `/readyz`,
+- emits `sensor_info{ndr_configured="false"}` when Prometheus is enabled,
+- logs a startup warning and a reminder every 10 s,
+- **attaches no BPF programs, opens no capture sockets, and forwards no traffic.**
 
-Set `sensor.ndrAddr` and the pod restarts; capture starts for real.
-Useful for validating RBAC / scheduling / image pulls on the cluster side
-before the NDR is provisioned, without silently forwarding captured frames
-to a placeholder IP.
+Set `sensor.ndrAddr` and restart the pod to start capture. Use parked
+mode to validate RBAC, scheduling, and image pull on a cluster before
+the NDR appliance is provisioned.
+
+## Intra-node capture
+
+The sensor captures both the primary node NIC (`eth0`) and CNI pod-veth
+interfaces automatically. Pod-to-pod traffic on the same node is switched
+entirely inside the kernel via veth pairs and never reaches `eth0` — the
+sensor attaches to both so no traffic is missed.
+
+A netlink watcher dynamically attaches to new pod-veth interfaces as pods
+start and detaches them when pods stop. No sensor restart or configuration
+is required.
+
+### Supported CNIs
+
+| Interface prefix | CNI | Cloud |
+|-----------------|-----|-------|
+| `eni*` | aws-vpc-cni | EKS |
+| `azv*` | Azure CNI | AKS |
+| `veth*` | kubenet / generic | GKE, bare Kubernetes |
+| `cali*` | Calico (non-eBPF datapath) | Any |
+
+> **Cilium is not supported.** Cilium's eBPF datapath redirects packets
+> before they traverse the veth pair, so veth-level capture misses most
+> traffic. If you need intra-node capture on Cilium, open an issue.
+
+Sensor logs show `"pod veth appeared, attaching"` and `"pod veth removed,
+detaching"` as pods start and stop.
+
+## Observability
+
+### Stdout (always on)
+
+Every 10 seconds the sensor logs a `tick` line:
+
+```json
+{"level":"INFO","msg":"tick","pps_in":120,"pps_out":87,"mbps_out":0,"kernel_drops":0,"mtu_exceeded":0,"send_errors":0}
+```
+
+`pps_in` / `pps_out` are per-second averages over the interval.
+`kernel_drops` is a cumulative count of frames the kernel dropped before
+userspace could read them (ring buffer full on TC-BPF, or socket buffer
+overflow on AF\_PACKET).
+
+### Prometheus
+
+Set `prometheus.enabled: true` to start the `/metrics` HTTP server on
+`<node-ip>:9090` and add `prometheus.io/scrape` pod annotations.
+
+Useful metrics:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `sensor_packets_captured_total` | counter | Packets read by the sensor, by iface and direction |
+| `sensor_packets_forwarded_total` | counter | Packets successfully forwarded to the NDR |
+| `sensor_bytes_forwarded_total` | counter | Wire bytes sent to the NDR (VXLAN encapsulated) |
+| `sensor_packets_dropped_kernel_total` | counter | Kernel-level drops (ring buffer / socket overflow) |
+| `sensor_packets_dropped_filter_total` | counter | In-kernel filter drops, by reason |
+| `sensor_mtu_exceeded_total` | counter | Frames dropped because inner + overhead > NDR MTU |
+| `sensor_ndr_send_errors_total` | counter | VXLAN send failures |
+| `sensor_capture_mode` | gauge | 1 for the active capture backend (`tcbpf` or `afpacket`), 0 for the other |
+| `sensor_info` | gauge | Always 1; labels: `version`, `node`, `mode`, `ndr_configured` |
+
+Useful alerts:
+
+```yaml
+# A node's sensor is running but not forwarding to NDR
+- alert: SensorParked
+  expr: max(sensor_info{ndr_configured="false"}) == 1
+
+# Ring buffer is full — sensor is CPU- or bandwidth-bound
+- alert: SensorKernelDrops
+  expr: rate(sensor_packets_dropped_kernel_total[5m]) > 0
+
+# Rolling upgrade stalled
+- alert: SensorVersionSkew
+  expr: count(group by (version) (sensor_info)) > 1
+  for: 10m
+```
+
+### ServiceMonitor (prometheus-operator)
+
+```yaml
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    labels:
+      release: kube-prometheus-stack   # match your Prometheus instance selector
+```
 
 ## Performance
 
-Measured on a 2-node EKS cluster (t3.medium, AL2023 / kernel 6.1, TC-BPF
-fast path), sensor v0.1.5, light production-style traffic:
+Measured on a 2-node EKS cluster (t3.medium, Amazon Linux 2023, kernel 6.1,
+TC-BPF path), light production-style traffic:
 
-- **~1 m CPU / ~10 Mi RAM per sensor pod** — 2 % of the chart's 50 m CPU
-  request, 16 % of its 64 Mi memory request. 0 kernel drops.
-- **Memory is constant per node** (dominated by the preallocated 4 MiB BPF
-  ring buffer). Footprint does **not** grow with pod count; CPU is the only
-  axis that scales with load.
-- **Filter drops 67–76 % of inspected traffic** (IMDS metadata, k8s
-  plumbing, DNS, VXLAN self-loopback) before it leaves the node, cutting
-  both wire bandwidth and NDR ingestion.
-- **VXLAN adds ~20 % byte overhead** per forwarded frame (50 B outer header
-  on a typical small control-plane frame).
-- Rule of thumb: **≈ 0.05 m CPU per observed PPS** at the current filter
-  complexity. The 50 m CPU request is sized for ~250 pods/node of chatty
-  workload; at typical 30–100 pod/node density the sensor uses 2–7 % of
-  its 300 m limit.
+- **~1 m CPU / ~10 Mi RAM per pod** — well within the 50 m CPU and 64 Mi
+  memory requests.
+- **Memory is constant per node** — footprint does not grow with pod count.
+  CPU scales with observed packet rate.
+- **67–76 % of inspected traffic is filtered in-kernel** (IMDS, DNS, VXLAN
+  self-loopback, Kubernetes plumbing) before reaching userspace.
+- **Rule of thumb: ~0.05 m CPU per observed PPS.** The 50 m request covers
+  roughly 250 pods/node of chatty workload.
 
-For raw counters, per-watched-pod amortization, the scaling projection, and
-the iperf3-driven stress harness, see [`benchmarks/README.md`](benchmarks/README.md).
+For the iperf3-driven stress harness and raw counter tables see
+[`benchmarks/README.md`](benchmarks/README.md).
 
 ## License
 

@@ -45,11 +45,13 @@ const (
 )
 
 type TCBPF struct {
-	objs   sensorBPFObjects
-	links  []link.Link
-	rb     *ringbuf.Reader
-	rbOnce sync.Once
-	ifaces map[int]string // ifindex -> name
+	objs     sensorBPFObjects
+	linksMu  sync.RWMutex
+	links    map[int][]link.Link // ifindex -> [ingressLink, egressLink]
+	rb       *ringbuf.Reader
+	rbOnce   sync.Once
+	readerWG sync.WaitGroup
+	ifaces   map[int]string // ifindex -> name
 
 	captured atomic.Uint64
 	closed   sync.Once
@@ -69,7 +71,7 @@ func NewTCBPF() (*TCBPF, error) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, fmt.Errorf("remove memlock: %w", err)
 	}
-	t := &TCBPF{ifaces: make(map[int]string)}
+	t := &TCBPF{ifaces: make(map[int]string), links: make(map[int][]link.Link)}
 	if err := loadSensorBPFObjects(&t.objs, nil); err != nil {
 		return nil, fmt.Errorf("load bpf objects: %w", err)
 	}
@@ -89,10 +91,12 @@ func (t *TCBPF) Start(ctx context.Context, ifaces []string) (<-chan Packet, erro
 			slog.Warn("attach failed, skipping", "iface", name, "err", err)
 			continue
 		}
-		t.ifaces[l.Index] = l.Name
 	}
-	if len(t.ifaces) == 0 {
-		return nil, errors.New("tcbpf: no interfaces attached")
+	t.linksMu.RLock()
+	count := len(t.ifaces)
+	t.linksMu.RUnlock()
+	if count == 0 {
+		slog.Warn("tcbpf: no interfaces attached, waiting for dynamic attach")
 	}
 
 	rb, err := ringbuf.NewReader(t.objs.Events)
@@ -110,6 +114,7 @@ func (t *TCBPF) Start(ctx context.Context, ifaces []string) (<-chan Packet, erro
 	}()
 
 	out := make(chan Packet, 1024)
+	t.readerWG.Add(1)
 	go t.reader(ctx, out)
 	return out, nil
 }
@@ -147,11 +152,23 @@ func (t *TCBPF) attach(l *net.Interface) error {
 		_ = ingress.Close()
 		return fmt.Errorf("attach egress: %w", err)
 	}
-	t.links = append(t.links, ingress, egress)
+	t.linksMu.Lock()
+	if _, exists := t.links[l.Index]; exists {
+		// A concurrent caller attached while BPF setup was in progress.
+		// Discard the redundant links and return idempotently.
+		t.linksMu.Unlock()
+		_ = ingress.Close()
+		_ = egress.Close()
+		return nil
+	}
+	t.links[l.Index] = []link.Link{ingress, egress}
+	t.ifaces[l.Index] = l.Name
+	t.linksMu.Unlock()
 	return nil
 }
 
 func (t *TCBPF) reader(ctx context.Context, out chan<- Packet) {
+	defer t.readerWG.Done()
 	defer close(out)
 	for {
 		rec, err := t.rb.Read()
@@ -176,9 +193,12 @@ func (t *TCBPF) reader(ctx context.Context, out chan<- Packet) {
 		if evHdrLen+payloadLen > len(rec.RawSample) {
 			payloadLen = len(rec.RawSample) - evHdrLen
 		}
+		t.linksMu.RLock()
+		ifaceName := t.ifaces[int(ifindex)]
+		t.linksMu.RUnlock()
 		pkt := Packet{
 			Data:  rec.RawSample[evHdrLen : evHdrLen+payloadLen],
-			Iface: t.ifaces[int(ifindex)],
+			Iface: ifaceName,
 		}
 		if ingress {
 			pkt.Direction = DirIngress
@@ -223,17 +243,66 @@ func (t *TCBPF) readDropCounter(idx uint32) uint64 {
 	return v
 }
 
+func (t *TCBPF) Attach(iface string) error {
+	l, err := net.InterfaceByName(iface)
+	if err != nil {
+		slog.Debug("tcbpf attach: interface not found, may be gone", "iface", iface, "err", err)
+		return nil
+	}
+	t.linksMu.RLock()
+	_, already := t.links[l.Index]
+	t.linksMu.RUnlock()
+	if already {
+		return nil
+	}
+	return t.attach(l)
+}
+
+func (t *TCBPF) Detach(iface string) error {
+	l, err := net.InterfaceByName(iface)
+	if err != nil {
+		slog.Debug("tcbpf detach: interface not found, may be gone", "iface", iface, "err", err)
+		return nil
+	}
+	t.linksMu.Lock()
+	ls, ok := t.links[l.Index]
+	if !ok {
+		t.linksMu.Unlock()
+		return nil
+	}
+	delete(t.links, l.Index)
+	delete(t.ifaces, l.Index)
+	t.linksMu.Unlock()
+	for _, lk := range ls {
+		if err := lk.Close(); err != nil {
+			slog.Warn("tcbpf detach: close link", "iface", iface, "err", err)
+		}
+	}
+	return nil
+}
+
 func (t *TCBPF) Close() error {
 	var firstErr error
 	t.closed.Do(func() {
 		if err := t.closeRB(); err != nil && firstErr == nil {
 			firstErr = err
 		}
-		for _, l := range t.links {
-			if err := l.Close(); err != nil && firstErr == nil {
-				firstErr = err
+		// Wait for reader() to drain the ring buffer and exit before closing
+		// the BPF objects — accessing t.objs after Close() is a use-after-free.
+		t.readerWG.Wait()
+		t.linksMu.Lock()
+		for _, ls := range t.links {
+			for _, l := range ls {
+				if err := l.Close(); err != nil && firstErr == nil {
+					firstErr = err
+				}
 			}
 		}
+		// Clear maps so a post-close Detach (e.g. a watcher RTM_DELLINK event
+		// racing with shutdown) finds nothing and skips the now-invalid handles.
+		t.links = make(map[int][]link.Link)
+		t.ifaces = make(map[int]string)
+		t.linksMu.Unlock()
 		if err := t.objs.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}

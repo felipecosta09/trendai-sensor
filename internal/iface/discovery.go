@@ -59,3 +59,38 @@ func shouldSkip(name string) bool {
 	}
 	return false
 }
+
+// podVethPrefixes are the host-side veth interface name prefixes for the CNIs
+// that support kernel-level veth capture. Cilium (lxc*) is intentionally
+// absent — its eBPF datapath may redirect packets before veth traversal.
+var podVethPrefixes = []string{"veth", "eni", "azv", "cali"}
+
+// IsPodVeth reports whether name is a CNI pod-veth interface.
+func IsPodVeth(name string) bool {
+	for _, p := range podVethPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// ListPodVeths returns the names of all UP interfaces whose names match a
+// pod-veth prefix. Called at startup for the initial set; the watcher handles
+// subsequent additions.
+func ListPodVeths() ([]string, error) {
+	all, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, i := range all {
+		if i.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if IsPodVeth(i.Name) {
+			out = append(out, i.Name)
+		}
+	}
+	return out, nil
+}

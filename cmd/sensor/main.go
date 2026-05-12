@@ -117,8 +117,12 @@ func run() int {
 	}
 	defer cap.Close()
 
-	// Interfaces.
-	ifaces, err := iface.List()
+	// Interfaces — attach to primary NIC(s) at startup. Pod-veth interfaces
+	// are managed entirely by the watcher goroutine below: it snapshots
+	// existing pod-veths before entering its event loop, so all interfaces
+	// present at startup are attached via Attach() before any traffic is missed.
+	var ifaces []string
+	ifaces, err = iface.List()
 	if err != nil || len(ifaces) == 0 {
 		slog.Error("no capture interfaces", "err", err, "found", ifaces)
 		return 1
@@ -138,6 +142,38 @@ func run() int {
 		slog.Error("capture start", "err", err)
 		return 1
 	}
+
+	go func() {
+		backoff := time.Second
+		for {
+			err := iface.Watch(ctx,
+				func(name string) {
+					if err := cap.Attach(name); err != nil {
+						slog.Warn("pod veth appeared, attach failed", "iface", name, "err", err)
+					} else {
+						slog.Info("pod veth appeared, attaching", "iface", name)
+					}
+				},
+				func(name string) {
+					_ = cap.Detach(name)
+					slog.Info("pod veth removed, detaching", "iface", name)
+				},
+			)
+			if err == nil {
+				return // clean context cancellation
+			}
+			slog.Error("iface watcher exited unexpectedly, restarting", "err", err, "backoff", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			if backoff < 30*time.Second {
+				backoff *= 2
+			}
+		}
+	}()
+
 	hs.MarkReady()
 
 	go statsReporter(ctx, cap, fwd, m)
@@ -209,8 +245,10 @@ func serve(ctx context.Context, addr string, h http.Handler) {
 // counters are themselves cumulative, so we must Add only the delta each
 // tick — Adding the running total every 10 s inflates the counter
 // exponentially.
+const statsIntervalSec = 10
+
 func statsReporter(ctx context.Context, cap capture.Capturer, fwd *forward.Forwarder, m *metrics.Metrics) {
-	t := time.NewTicker(10 * time.Second)
+	t := time.NewTicker(statsIntervalSec * time.Second)
 	defer t.Stop()
 	var (
 		prevCaptured, prevSent, prevBytes     uint64
@@ -242,9 +280,9 @@ func statsReporter(ctx context.Context, cap capture.Capturer, fwd *forward.Forwa
 			prevCaptured, prevSent, prevBytes = cs.CapturedPackets, fs.Sent, fs.BytesOut
 
 			slog.Info("tick",
-				"pps_in", capDelta/10,
-				"pps_out", sentDelta/10,
-				"mbps_out", (bytesDelta*8)/1_000_000/10,
+				"pps_in", capDelta/statsIntervalSec,
+				"pps_out", sentDelta/statsIntervalSec,
+				"mbps_out", (bytesDelta*8)/1_000_000/statsIntervalSec,
 				"kernel_drops", cs.KernelDrops,
 				"mtu_exceeded", fs.MTUExceeded,
 				"send_errors", fs.SendErrors,

@@ -68,6 +68,7 @@ spec:
                 - NET_ADMIN
                 - BPF
                 - PERFMON
+                - SYS_RESOURCE
           env:
             # Surfaced as sensor_info{node=...} so dashboards can group by node.
             - name: NODE_NAME

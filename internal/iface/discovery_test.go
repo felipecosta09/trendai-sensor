@@ -2,6 +2,44 @@ package iface
 
 import "testing"
 
+func TestIsPodVeth(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		// EKS aws-vpc-cni
+		{"eni1abc2def", true},
+		{"eni0", true},
+		// Azure CNI
+		{"azv1a2b3c", true},
+		// kubenet / generic veth
+		{"veth1234abcd", true},
+		{"vethXYZ", true},
+		// Calico non-eBPF
+		{"cali12345abcde", true},
+		// Cilium — lxc* is intentionally excluded
+		{"lxcabcd1234", false},
+		// Physical NICs — must not match
+		{"eth0", false},
+		{"ens3", false},
+		{"enp0s8", false},
+		{"eno1", false},
+		// Substring must not match (HasPrefix only)
+		{"myeni", false},
+		{"notazv", false},
+		{"test-veth", false},
+		// Empty
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsPodVeth(tc.name); got != tc.want {
+				t.Errorf("IsPodVeth(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestShouldSkip(t *testing.T) {
 	cases := []struct {
 		name string

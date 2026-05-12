@@ -60,6 +60,20 @@ func TestFilterDropsPreRegistered(t *testing.T) {
 	}
 }
 
+// Both capture mode label values must appear from t=0 so `group by (mode)
+// (sensor_capture_mode)` returns both rows before any traffic is seen.
+func TestCaptureModePreRegistered(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_ = New(reg)
+	body := scrape(t, reg)
+	for _, mode := range []string{"tcbpf", "afpacket"} {
+		needle := `sensor_capture_mode{mode="` + mode + `"} 0`
+		if !strings.Contains(body, needle) {
+			t.Errorf("expected %q in scrape, got:\n%s", needle, body)
+		}
+	}
+}
+
 // rb_full and mtu_exceeded are exported via separate counters (kernel_drops
 // and mtu_exceeded), not as FilterDrops label values. Guard against someone
 // re-adding them to AllReasons — that would create a ghost label series that

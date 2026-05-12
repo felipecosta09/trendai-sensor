@@ -1,3 +1,67 @@
+## v0.1.9 — 2026-05-11
+
+### Added
+
+- **Automatic intra-node pod-to-pod capture.** The sensor now attaches
+  TC-BPF / AF\_PACKET to CNI pod-veth interfaces in addition to the primary
+  NIC (`eth0`), making same-node pod-to-pod traffic visible to NDR with no
+  configuration required. Supported CNIs: aws-vpc-cni (`eni*`), Azure CNI
+  (`azv*`), kubenet / generic (`veth*`), Calico non-eBPF (`cali*`). Cilium is
+  not supported — its eBPF datapath bypasses veth traversal.
+- **`iface.Watch`** — netlink subscriber that fires `Attach`/`Detach` as pods
+  start and stop. No sensor restart required for new pods; handles a pre-cancelled
+  context within < 1 s per the capture-path rule.
+- **`Capturer.Attach(iface string) error`** and **`Capturer.Detach(iface string) error`**
+  on both TC-BPF and AF\_PACKET backends. Both are idempotent: repeated `Attach`
+  calls for the same interface are no-ops.
+- **`iface.IsPodVeth` / `iface.ListPodVeths`** helpers for identifying and
+  enumerating CNI pod-veth interfaces.
+- In-cluster e2e suite (`e2e/intranode_test.go`, `make e2e`) covering dynamic
+  attach, dynamic detach, and graceful shutdown on EKS.
+
+### Changed
+
+- `Capturer.Start` with an empty interface list now logs a warning instead of
+  returning an error. This allows startup on nodes that have no pods yet — the
+  watcher attaches as pods appear. The primary NIC path still fatal-errors on
+  an empty interface list.
+
+### Fixed
+
+- **VNI env var now accepts plain decimal** (`"100"`) in addition to
+  `0x`-prefixed hex (`"0x64"`). Previously all values were silently parsed as
+  hex, so `vni: "100"` produced VNI 256 (`0x100`) with no error or warning.
+  `0X` uppercase prefix is also accepted. Bare non-decimal strings (`"1a"`)
+  now return a clear parse error.
+- **`iface.Watch` returns a non-nil error on unexpected netlink channel
+  close** and the sensor restart loop re-subscribes with exponential backoff
+  (capped at 30 s). Previously Watch returned `nil`, the goroutine silently
+  exited, and intra-node capture stopped working for all new pods with no
+  log or metric signal.
+- **TC-BPF `attach()` re-checks existence under the write lock** before
+  storing new link handles. The prior code only checked under an RLock, so
+  two callers racing through `Start` with duplicate interface names could
+  overwrite and leak the first caller's BPF link handles without ever closing
+  them. Leaked TC links leave orphan BPF hooks that produce duplicate packet
+  captures.
+- **AF_PACKET `Attach` now sets `isClosed` in `closeFDs`** and re-checks it
+  under the write lock after `EpollCtl`. A post-close `Attach` call that
+  raced past the RLock idempotency check would call `EpollCtl` on the closed
+  `epollFD` integer — after OS fd reuse this could operate on the wrong
+  epoll set. The new check detects this race and discards the socket cleanly.
+- **`readerWG.Wait()` in `TCBPF.Close()`** between `closeRB()` and
+  `objs.Close()` prevents a use-after-free: the BPF map handles in `t.objs`
+  were closed while `reader()` was still calling `t.rb.Read()` against them.
+- **`SYS_RESOURCE` capability** added to the DaemonSet so
+  `rlimit.RemoveMemlock()` succeeds on kernels 5.8–5.10 (including Amazon
+  Linux 2 5.10 used by some EKS node groups). Without it the sensor exited
+  with `EPERM` on those nodes before loading any BPF programs.
+- **`sensor_capture_mode` pre-registered** at 0 for both `"tcbpf"` and
+  `"afpacket"` so `group by (mode) (sensor_capture_mode)` returns both rows
+  from t=0 without requiring traffic to pass through the active backend first.
+
+---
+
 ## v0.1.8 — 2026-05-11
 
 ### Fixed

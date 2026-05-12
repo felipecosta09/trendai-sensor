@@ -37,14 +37,20 @@ var _ = [1]struct{}{}[unsafe.Sizeof(bpf.RawInstruction{})-unsafe.Sizeof(unix.Soc
 // interruptible by the eventfd becoming readable, which is how Close makes
 // shutdown deterministic.
 type AFPacket struct {
-	spec    filterpkg.Spec
-	sockets map[string]int // iface -> fd (non-blocking)
-	epollFD int
-	eventFD int
-	buf     int
+	spec      filterpkg.Spec
+	socketsMu sync.RWMutex
+	sockets   map[string]int    // iface -> fd (non-blocking)
+	ifaceByFD map[int32]string  // fd -> iface (for eventLoop)
+	rawOnce   sync.Once
+	raw       []bpf.RawInstruction
+	rawErr    error
+	epollFD   int
+	eventFD   int
+	buf       int
 
 	captured    atomic.Uint64
 	kernelDrops atomic.Uint64 // cumulative; PACKET_STATISTICS resets on read so we accumulate here
+	isClosed    atomic.Bool   // set in closeFDs; checked in Attach to prevent post-close fd reuse
 	closed      sync.Once
 	loopWG      sync.WaitGroup // incremented before eventLoop spawns, zeroed when it returns
 }
@@ -55,36 +61,47 @@ const afpacketReadBuf = 65535
 
 func NewAFPacket(spec filterpkg.Spec) *AFPacket {
 	return &AFPacket{
-		spec:    spec,
-		sockets: make(map[string]int),
-		epollFD: -1,
-		eventFD: -1,
-		buf:     afpacketReadBuf,
+		spec:      spec,
+		sockets:   make(map[string]int),
+		ifaceByFD: make(map[int32]string),
+		epollFD:   -1,
+		eventFD:   -1,
+		buf:       afpacketReadBuf,
 	}
 }
 
 func (a *AFPacket) Mode() string { return "afpacket" }
 
 func (a *AFPacket) Start(ctx context.Context, ifaces []string) (<-chan Packet, error) {
-	prog, err := filterpkg.Assemble(a.spec)
-	if err != nil {
-		return nil, fmt.Errorf("build cbpf: %w", err)
-	}
-	raw, err := bpf.Assemble(prog)
-	if err != nil {
-		return nil, fmt.Errorf("assemble cbpf: %w", err)
+	// Cache the assembled cBPF so Attach can reuse it without re-assembling.
+	a.rawOnce.Do(func() {
+		prog, err := filterpkg.Assemble(a.spec)
+		if err != nil {
+			a.rawErr = fmt.Errorf("build cbpf: %w", err)
+			return
+		}
+		raw, err := bpf.Assemble(prog)
+		if err != nil {
+			a.rawErr = fmt.Errorf("assemble cbpf: %w", err)
+			return
+		}
+		a.raw = raw
+	})
+	if a.rawErr != nil {
+		return nil, a.rawErr
 	}
 
 	for _, name := range ifaces {
-		fd, err := openSocket(name, raw)
+		fd, err := openSocket(name, a.raw)
 		if err != nil {
 			slog.Warn("afpacket open", "iface", name, "err", err)
 			continue
 		}
 		a.sockets[name] = fd
+		a.ifaceByFD[int32(fd)] = name
 	}
 	if len(a.sockets) == 0 {
-		return nil, errors.New("afpacket: no interfaces opened")
+		slog.Warn("afpacket: no interfaces opened, waiting for dynamic attach")
 	}
 
 	efd, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
@@ -148,12 +165,8 @@ func (a *AFPacket) Start(ctx context.Context, ifaces []string) (<-chan Packet, e
 // is safe — the kernel's fd→file mapping is independent of the integer
 // value we hold, and a stale integer at worst yields EBADF which we handle.
 func (a *AFPacket) eventLoop(ctx context.Context, out chan<- Packet) {
-	events := make([]unix.EpollEvent, 1+len(a.sockets))
+	events := make([]unix.EpollEvent, 256)
 	buf := make([]byte, a.buf)
-	ifaceByFD := make(map[int32]string, len(a.sockets))
-	for name, fd := range a.sockets {
-		ifaceByFD[int32(fd)] = name
-	}
 	for {
 		n, err := unix.EpollWait(a.epollFD, events, -1)
 		if err != nil {
@@ -173,7 +186,9 @@ func (a *AFPacket) eventLoop(ctx context.Context, out chan<- Packet) {
 			if ev.Fd == int32(a.eventFD) {
 				return
 			}
-			name := ifaceByFD[ev.Fd]
+			a.socketsMu.RLock()
+			name := a.ifaceByFD[ev.Fd]
+			a.socketsMu.RUnlock()
 			if !a.drainSocket(ctx, int(ev.Fd), name, buf, out) {
 				return
 			}
@@ -233,12 +248,14 @@ func (a *AFPacket) Stats() Stats {
 	// cumulative counter so callers see monotonically-increasing values like
 	// the TC-BPF backend.
 	var delta uint64
+	a.socketsMu.RLock()
 	for _, fd := range a.sockets {
 		d, err := readPacketStats(fd)
 		if err == nil {
 			delta += uint64(d)
 		}
 	}
+	a.socketsMu.RUnlock()
 	if delta > 0 {
 		a.kernelDrops.Add(delta)
 	}
@@ -247,6 +264,68 @@ func (a *AFPacket) Stats() Stats {
 		KernelDrops:     a.kernelDrops.Load(),
 		FilterDrops:     map[string]uint64{},
 	}
+}
+
+func (a *AFPacket) Attach(iface string) error {
+	a.socketsMu.RLock()
+	_, already := a.sockets[iface]
+	a.socketsMu.RUnlock()
+	if already {
+		return nil
+	}
+	// Assemble cBPF if Start was called with an empty interface list.
+	a.rawOnce.Do(func() {
+		prog, err := filterpkg.Assemble(a.spec)
+		if err != nil {
+			a.rawErr = fmt.Errorf("build cbpf: %w", err)
+			return
+		}
+		raw, err := bpf.Assemble(prog)
+		if err != nil {
+			a.rawErr = fmt.Errorf("assemble cbpf: %w", err)
+			return
+		}
+		a.raw = raw
+	})
+	if a.rawErr != nil {
+		return a.rawErr
+	}
+	fd, err := openSocket(iface, a.raw)
+	if err != nil {
+		return fmt.Errorf("afpacket attach %s: %w", iface, err)
+	}
+	if err := unix.EpollCtl(a.epollFD, unix.EPOLL_CTL_ADD, fd,
+		&unix.EpollEvent{Events: unix.EPOLLIN, Fd: int32(fd)}); err != nil {
+		_ = unix.Close(fd)
+		return fmt.Errorf("epoll_ctl attach %s: %w", iface, err)
+	}
+	a.socketsMu.Lock()
+	if a.isClosed.Load() {
+		// Close() raced ahead of us after EpollCtl — clean up and bail.
+		a.socketsMu.Unlock()
+		_ = unix.EpollCtl(a.epollFD, unix.EPOLL_CTL_DEL, fd, nil)
+		_ = unix.Close(fd)
+		return nil
+	}
+	a.sockets[iface] = fd
+	a.ifaceByFD[int32(fd)] = iface
+	a.socketsMu.Unlock()
+	return nil
+}
+
+func (a *AFPacket) Detach(iface string) error {
+	a.socketsMu.Lock()
+	fd, ok := a.sockets[iface]
+	if !ok {
+		a.socketsMu.Unlock()
+		return nil
+	}
+	delete(a.sockets, iface)
+	delete(a.ifaceByFD, int32(fd))
+	a.socketsMu.Unlock()
+	_ = unix.EpollCtl(a.epollFD, unix.EPOLL_CTL_DEL, fd, nil)
+	_ = unix.Close(fd)
+	return nil
 }
 
 // Close is idempotent (sync.Once) and blocks until the event loop has
@@ -280,9 +359,19 @@ func (a *AFPacket) Close() error {
 // guarantees closeFDs runs at most once post-Start, so there is no
 // double-close hazard that the -1 sentinel would guard against.
 func (a *AFPacket) closeFDs() {
+	a.socketsMu.Lock()
+	// Mark closed before clearing maps so any Attach that re-checks under
+	// the write lock after this point sees isClosed=true and bails out,
+	// preventing use of the about-to-be-closed epollFD integer.
+	a.isClosed.Store(true)
 	for _, fd := range a.sockets {
 		_ = unix.Close(fd)
 	}
+	// Clear maps so a post-close Detach finds nothing and cannot operate on
+	// stale (or OS-reused) fd integers.
+	a.sockets = make(map[string]int)
+	a.ifaceByFD = make(map[int32]string)
+	a.socketsMu.Unlock()
 	if a.epollFD >= 0 {
 		_ = unix.Close(a.epollFD)
 	}
