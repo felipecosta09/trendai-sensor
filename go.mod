@@ -1,13 +1,13 @@
 module github.com/trendai/sensor
 
-go 1.23.0
+go 1.25.0
 
 require (
 	github.com/cilium/ebpf v0.15.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/vishvananda/netlink v1.2.1-beta.2
-	golang.org/x/net v0.38.0
-	golang.org/x/sys v0.31.0
+	golang.org/x/net v0.55.0
+	golang.org/x/sys v0.45.0
 )
 
 require (
