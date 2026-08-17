@@ -1,13 +1,13 @@
 module github.com/trendai/sensor
 
-go 1.23.0
+go 1.25.0
 
 require (
-	github.com/cilium/ebpf v0.15.0
+	github.com/cilium/ebpf v0.22.0
 	github.com/prometheus/client_golang v1.19.1
 	github.com/vishvananda/netlink v1.2.1-beta.2
-	golang.org/x/net v0.38.0
-	golang.org/x/sys v0.31.0
+	golang.org/x/net v0.48.0
+	golang.org/x/sys v0.43.0
 )
 
 require (
@@ -17,6 +17,5 @@ require (
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae // indirect
-	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 )
